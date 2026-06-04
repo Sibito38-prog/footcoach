@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#1f8f5f" />
+    <meta name="description" content="FootCoach, um manager de futebol jogavel com saves, database editavel e carreira." />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="footcoach-icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="footcoach-192.png" />
+    <title>FootCoach</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section id="mainMenu" class="club-select">
+        <div class="intro">
+          <p class="eyebrow">manager de futebol</p>
+          <h1>FootCoach</h1>
+          <p>
+            Crie uma nova carreira, continue o save mais recente ou escolha um dos
+            seus saves salvos.
+          </p>
+          <button id="installAppBtn" class="buy-button install-button hidden">Instalar app</button>
+        </div>
+        <div class="mode-grid">
+          <button id="newSaveBtn" class="club-card mode-card" style="border-top: 5px solid var(--field)">
+            <strong>Criar novo save</strong>
+            <p>Escolha database, modo de jogo e clube para iniciar uma carreira.</p>
+            <div class="club-meta"><span class="pill">novo projeto</span></div>
+          </button>
+          <button id="loadRecentBtn" class="club-card mode-card" style="border-top: 5px solid var(--gold)">
+            <strong>Carregar mais recente</strong>
+            <p>Volte rapidamente para o ultimo save jogado.</p>
+            <div class="club-meta"><span class="pill">continuidade</span></div>
+          </button>
+        </div>
+        <section class="database-panel">
+          <div class="section-heading compact-heading">
+            <h2>Carregar outro save</h2>
+            <span>3 slots</span>
+          </div>
+          <div id="saveSlots" class="save-slots"></div>
+        </section>
+      </section>
+
+      <section id="modeSelect" class="club-select hidden">
+        <div class="intro">
+          <p class="eyebrow">prototipo jogavel</p>
+          <h1>FootCoach</h1>
+          <p>
+            Escolha como quer comecar sua carreira: assumir qualquer clube livremente
+            ou subir do zero aceitando apenas projetos pequenos.
+          </p>
+          <div class="database-panel">
+            <div class="section-heading compact-heading">
+              <h2>Database editavel</h2>
+              <button id="sampleDatabaseBtn" class="secondary-action small-action">Ver modelo</button>
+            </div>
+            <p>Use a base generica ou importe um JSON proprio. Clubes, divisoes, cores e logos entram no save agora; competicoes nacionais, estaduais e continentais ficam no arquivo para a expansao do calendario real.</p>
+            <div class="database-actions">
+              <input id="databaseFileInput" type="file" accept="application/json,.json" />
+              <button id="clearDatabaseBtn" class="secondary-action small-action">Usar base generica</button>
+            </div>
+            <textarea id="databaseTextInput" class="database-text hidden" spellcheck="false"></textarea>
+            <div class="database-actions hidden" id="databaseTextActions">
+              <button id="importDatabaseTextBtn" class="buy-button small-action">Importar texto</button>
+              <button id="hideDatabaseTextBtn" class="secondary-action small-action">Fechar modelo</button>
+            </div>
+            <span id="databaseStatus" class="market-meta">Base atual: generica FootCoach.</span>
+          </div>
+        </div>
+        <div class="mode-grid">
+          <button class="club-card mode-card" data-game-mode="free" style="border-top: 5px solid var(--field)">
+            <strong>Modo livre</strong>
+            <p>Escolha qualquer time. Sua reputacao inicial como treinador acompanha o tamanho do clube escolhido.</p>
+            <div class="club-meta"><span class="pill">todos os clubes</span><span class="pill">inicio flexivel</span></div>
+          </button>
+          <button class="club-card mode-card" data-game-mode="zero" style="border-top: 5px solid var(--gold)">
+            <strong>Carreira do zero</strong>
+            <p>Comece com reputacao minima e escolha apenas entre os 5 clubes mais fracos da Segunda Divisao.</p>
+            <div class="club-meta"><span class="pill">desafio realista</span><span class="pill">reputacao baixa</span></div>
+          </button>
+        </div>
+      </section>
+
+      <section id="clubSelect" class="club-select hidden">
+        <div class="intro">
+          <p class="eyebrow">prototipo jogavel</p>
+          <h1>FootCoach</h1>
+          <p>
+            Escolha um clube, ajuste uma ideia de jogo simples e veja sua temporada
+            responder a tatica, elenco, mercado e desempenho.
+          </p>
+          <button id="backToModeBtn" class="secondary-action small-action">Voltar aos modos</button>
+          <label class="select-switch">
+            Divisao
+            <select id="clubSelectDivision">
+              <option value="1">Primeira Divisao</option>
+              <option value="2">Segunda Divisao</option>
+            </select>
+          </label>
+        </div>
+        <div id="clubCards" class="club-grid" aria-label="Clubes disponiveis"></div>
+      </section>
+
+      <section id="gameView" class="game-view hidden" aria-live="polite">
+        <header class="topbar">
+          <div>
+            <p id="seasonMeta" class="eyebrow">rodada 1</p>
+            <div class="club-title">
+              <span id="clubLogoTop"></span>
+              <h1 id="clubName">Clube</h1>
+            </div>
+            <p id="coachMeta" class="coach-meta">Treinador: rep 0 / exp 0</p>
+          </div>
+          <div class="topbar-actions">
+            <button id="saveBtn" class="icon-button" title="Salvar jogo" aria-label="Salvar jogo">S</button>
+            <button id="mainMenuBtn" class="icon-button" title="Menu inicial" aria-label="Menu inicial">M</button>
+          </div>
+        </header>
+
+        <nav class="tabs" aria-label="Navegacao principal">
+          <button class="tab active" data-tab="dashboard">Visao</button>
+          <button class="tab" data-tab="inbox">Caixa <span id="inboxBadge" class="tab-badge hidden">0</span></button>
+          <button class="tab" data-tab="squad">Elenco</button>
+          <button class="tab" data-tab="lineup">Tat. & Esc.</button>
+          <button class="tab" data-tab="training">Treino</button>
+          <button class="tab" data-tab="club">Clube</button>
+          <button class="tab" data-tab="market">Mercado</button>
+          <button class="tab" data-tab="calendar">Calendario</button>
+          <button class="tab" data-tab="league">Tabela</button>
+          <button id="matchTabButton" class="tab hidden" data-tab="match">Jogo</button>
+        </nav>
+
+        <div class="layout">
+          <section class="main-panel">
+            <div id="dashboardTab" class="tab-panel active">
+              <div class="match-strip">
+                <div>
+                  <p id="calendarMeta" class="eyebrow">dia 1</p>
+                  <h2 id="nextMatch">Carregando...</h2>
+                </div>
+                <div class="action-row">
+                  <button id="advanceDayBtn" class="secondary-action">Avancar dia</button>
+                  <button id="liveMatchBtn" class="primary-action">Ver ao vivo</button>
+                  <button id="quickSimBtn" class="secondary-action">Simular</button>
+                </div>
+              </div>
+
+              <div class="stats-grid">
+                <article>
+                  <span>Posicao</span>
+                  <strong id="rankStat">-</strong>
+                </article>
+                <article>
+                  <span>Orcamento</span>
+                  <strong id="budgetStat">-</strong>
+                </article>
+                <article>
+                  <span>Moral</span>
+                  <strong id="moraleStat">-</strong>
+                </article>
+                <article>
+                  <span>Forca media</span>
+                  <strong id="ratingStat">-</strong>
+                </article>
+              </div>
+
+              <section class="content-block">
+                <div class="section-heading">
+                  <h2>Ultima partida</h2>
+                  <span id="lastResultBadge">sem jogo</span>
+                </div>
+                <div id="matchReport" class="match-report empty">A temporada ainda nao comecou.</div>
+              </section>
+            </div>
+
+            <div id="squadTab" class="tab-panel">
+              <div class="section-heading">
+                <h2>Elenco</h2>
+                <span id="squadCount">0 jogadores</span>
+              </div>
+              <div class="sub-tabs">
+                <button class="sub-tab active" data-squad-section="pro">Profissional</button>
+                <button class="sub-tab" data-squad-section="youth">Categoria de base</button>
+                <button class="sub-tab" data-squad-section="intake">Peneira</button>
+              </div>
+              <div class="filter-bar squad-filters">
+                <input id="squadSearch" type="search" placeholder="Pesquisar jogador" />
+                <select id="squadSort">
+                  <option value="rating-desc">Geral: maior primeiro</option>
+                  <option value="rating-asc">Geral: menor primeiro</option>
+                  <option value="value-desc">Valor: maior primeiro</option>
+                  <option value="value-asc">Valor: menor primeiro</option>
+                  <option value="position-asc">Posicao</option>
+                  <option value="apps-desc">Jogos</option>
+                  <option value="avg-desc">Nota media</option>
+                  <option value="condition-asc">Fisico: menor primeiro</option>
+                </select>
+                <select id="squadListFilter">
+                  <option value="all">Todos</option>
+                  <option value="listed">Listados</option>
+                  <option value="transfer">Lista de transferencia</option>
+                  <option value="loan">Lista de emprestimo</option>
+                  <option value="blocked">Propostas bloqueadas</option>
+                </select>
+              </div>
+              <div id="squadList" class="player-list"></div>
+            </div>
+
+            <div id="inboxTab" class="tab-panel">
+              <div class="section-heading">
+                <h2>Caixa de entrada</h2>
+                <div class="action-row">
+                  <span id="inboxHint">mensagens do clube</span>
+                  <button id="markAllInboxReadBtn" class="secondary-action small-action">Marcar todas como lidas</button>
+                </div>
+              </div>
+              <div id="inboxList" class="inbox-list"></div>
+            </div>
+
+            <div id="lineupTab" class="tab-panel">
+              <div class="section-heading">
+                <h2>Tatica e Escalacao</h2>
+                <span id="lineupShape">4-3-3</span>
+              </div>
+              <div class="tactic-grid">
+                <label>
+                  Formacao
+                  <select id="formationSelect"></select>
+                </label>
+                <label>
+                  Mentalidade
+                  <select id="mentalitySelect"></select>
+                </label>
+                <label>
+                  Com bola
+                  <select id="attackStyleSelect"></select>
+                </label>
+                <label>
+                  Sem bola
+                  <select id="defenseStyleSelect"></select>
+                </label>
+              </div>
+              <div id="lineupEditor" class="lineup-board"></div>
+              <div class="action-row">
+                <button id="autoLineupBtn" class="secondary-action">Onze ideal</button>
+              </div>
+              <section class="content-block">
+                <h2>Encaixe tatico</h2>
+                <div id="tacticAdvice" class="advice"></div>
+              </section>
+            </div>
+
+            <div id="trainingTab" class="tab-panel">
+              <div class="section-heading">
+                <h2>Treino</h2>
+                <span>foco individual</span>
+              </div>
+              <div id="trainingList" class="training-list"></div>
+            </div>
+
+            <div id="clubTab" class="tab-panel">
+              <div class="section-heading">
+                <h2>Clube</h2>
+                <span id="clubDevelopmentHint">instalacoes e base</span>
+              </div>
+              <div id="clubDevelopmentPanel"></div>
+            </div>
+
+            <div id="matchTab" class="tab-panel">
+              <div class="match-room">
+                <section class="content-block live-box">
+                  <div class="section-heading">
+                    <div>
+                      <p class="eyebrow">partida em andamento</p>
+                      <h2 id="liveScore">Partida ao vivo</h2>
+                    </div>
+                    <span id="liveMinute">0'</span>
+                  </div>
+                  <div class="match-controls">
+                    <button id="pauseMatchBtn" class="secondary-action">Pausar</button>
+                    <label class="speed-control">
+                      Velocidade
+                      <select id="matchSpeedSelect">
+                        <option value="2500">Lenta</option>
+                        <option value="1500" selected>Normal</option>
+                        <option value="750">Rapida</option>
+                      </select>
+                    </label>
+                    <button id="finishMatchBtn" class="secondary-action">Simular restante</button>
+                  </div>
+                  <div class="live-stats" id="liveStats"></div>
+                  <div id="liveEvents" class="match-report"></div>
+                </section>
+
+                <section class="content-block">
+                  <div class="section-heading">
+                    <h2>Alteracoes durante o jogo</h2>
+                    <span>arraste no campo ou no banco</span>
+                  </div>
+                  <div class="tactic-grid compact">
+                    <label>
+                      Mentalidade
+                      <select id="liveMentalitySelect"></select>
+                    </label>
+                    <label>
+                      Com bola
+                      <select id="liveAttackStyleSelect"></select>
+                    </label>
+                    <label>
+                      Sem bola
+                      <select id="liveDefenseStyleSelect"></select>
+                    </label>
+                  </div>
+                  <div id="matchLineupEditor" class="lineup-board"></div>
+                </section>
+              </div>
+            </div>
+
+            <div id="marketTab" class="tab-panel">
+              <div class="section-heading">
+                <h2>Mercado</h2>
+                <span id="marketHint">negociacoes realistas</span>
+              </div>
+              <div class="sub-tabs">
+                <button class="sub-tab active" data-market-section="players">Jogadores</button>
+                <button class="sub-tab" data-market-section="offers">Propostas recebidas</button>
+                <button class="sub-tab" data-market-section="history">Historico</button>
+              </div>
+
+              <section id="marketPlayersSection" class="market-section active">
+                <div class="filter-bar">
+                  <input id="marketSearch" type="search" placeholder="Pesquisar jogador ou clube" />
+                  <select id="positionFilter">
+                    <option value="all">Todas posicoes</option>
+                  </select>
+                  <select id="affordFilter">
+                    <option value="all">Todos</option>
+                    <option value="transfer">Lista de transferencia</option>
+                    <option value="loan">Lista de emprestimo</option>
+                    <option value="affordable">Cabe no orcamento</option>
+                    <option value="starter">Nivel titular</option>
+                    <option value="young">Jovens promessas</option>
+                  </select>
+                </div>
+                <div id="marketList" class="market-list"></div>
+              </section>
+
+              <section id="marketOffersSection" class="market-section content-block offer-block">
+                <div class="section-heading">
+                  <h2>Propostas recebidas</h2>
+                  <span id="offerCount">0 abertas</span>
+                </div>
+                <div id="incomingOffers" class="market-list"></div>
+              </section>
+
+              <section id="marketHistorySection" class="market-section content-block transfer-block">
+                <div class="section-heading">
+                  <h2>Historico de transferencias</h2>
+                  <span id="transferCount">0 registros</span>
+                </div>
+                <div class="filter-bar transfer-filters">
+                  <input id="transferSearch" type="search" placeholder="Pesquisar jogador ou clube" />
+                  <select id="transferClubFilter">
+                    <option value="all">Todos os clubes</option>
+                  </select>
+                  <input id="transferMinFilter" type="number" min="0" step="0.5" placeholder="Valor minimo (R$ mi)" />
+                </div>
+                <div id="transferHistory" class="market-list"></div>
+              </section>
+            </div>
+
+            <div id="leagueTab" class="tab-panel">
+              <div class="section-heading">
+                <h2>Competicoes</h2>
+                <label class="select-switch compact-switch">
+                  Ver
+                  <select id="competitionViewSelect">
+                    <option value="division1">Primeira Divisao</option>
+                    <option value="division2">Segunda Divisao</option>
+                    <option value="cup">Copa Nacional</option>
+                  </select>
+                </label>
+              </div>
+              <div id="divisionOneView" class="competition-view">
+                <h2 class="table-title">Primeira Divisao</h2>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Clube</th>
+                        <th>J</th>
+                        <th>V</th>
+                        <th>E</th>
+                        <th>D</th>
+                        <th>SG</th>
+                        <th>GP</th>
+                        <th>GC</th>
+                        <th>xG</th>
+                        <th>Pts</th>
+                      </tr>
+                    </thead>
+                    <tbody id="leagueTable"></tbody>
+                  </table>
+                </div>
+              </div>
+              <div id="divisionTwoView" class="competition-view hidden">
+                <h2 class="table-title">Segunda Divisao</h2>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Clube</th>
+                        <th>J</th>
+                        <th>V</th>
+                        <th>E</th>
+                        <th>D</th>
+                        <th>SG</th>
+                        <th>GP</th>
+                        <th>GC</th>
+                        <th>xG</th>
+                        <th>Pts</th>
+                      </tr>
+                    </thead>
+                    <tbody id="secondLeagueTable"></tbody>
+                  </table>
+                </div>
+              </div>
+              <div id="cupView" class="competition-view hidden">
+                <h2 class="table-title">Copa Nacional</h2>
+                <div id="cupOverview" class="cup-overview"></div>
+              </div>
+            </div>
+
+            <div id="calendarTab" class="tab-panel">
+              <div class="section-heading">
+                <h2>Calendario</h2>
+                <div class="calendar-nav">
+                  <button class="icon-button" id="prevMonthBtn" title="Mes anterior" aria-label="Mes anterior">&lt;</button>
+                  <span id="calendarHint">mes atual</span>
+                  <button class="icon-button" id="nextMonthBtn" title="Proximo mes" aria-label="Proximo mes">&gt;</button>
+                </div>
+              </div>
+              <div id="calendarList" class="calendar-list"></div>
+            </div>
+
+            <div id="clubProfileTab" class="tab-panel">
+              <section id="clubProfile" class="content-block club-profile"></section>
+            </div>
+          </section>
+
+          <aside class="side-panel">
+            <section>
+              <h2>Onze titular</h2>
+              <div id="lineupList" class="lineup-list"></div>
+            </section>
+            <section>
+              <h2>Noticias</h2>
+              <div id="newsFeed" class="news-feed"></div>
+            </section>
+          </aside>
+        </div>
+        <div id="negotiationModal" class="modal-layer hidden"></div>
+        <div id="alertModal" class="modal-layer hidden"></div>
+      </section>
+    </main>
+    <div id="loadingOverlay" class="loading-overlay hidden" role="status" aria-live="polite" aria-busy="true" aria-hidden="true">
+      <div class="loading-card">
+        <span class="loading-spinner" aria-hidden="true"></span>
+        <div>
+          <strong id="loadingTitle">Carregando</strong>
+          <p id="loadingMessage">Preparando o jogo...</p>
+        </div>
+      </div>
+    </div>
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,32 @@
+{
+  "name": "FootCoach",
+  "short_name": "FootCoach",
+  "description": "Manager de futebol jogavel com carreira, mercado, taticas, saves e database editavel.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#f5f7f2",
+  "theme_color": "#1f8f5f",
+  "categories": ["games", "sports", "simulation"],
+  "icons": [
+    {
+      "src": "footcoach-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "footcoach-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "footcoach-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
