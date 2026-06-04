@@ -1,10 +1,10 @@
-const CACHE_NAME = "footcoach-pwa-v3";
+const CACHE_NAME = "footcoach-pwa-v4";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
-  "./manifest.webmanifest",
+  "./manifest.webmanifest?v=4",
   "./footcoach-icon.svg",
   "./footcoach-192.png",
   "./footcoach-512.png"
