@@ -897,7 +897,12 @@ function setDatabaseStatus(message = "") {
 
 function applyCustomDatabase(database) {
   customDatabase = sanitizeDatabase(database);
-  localStorage.setItem("footCoachDatabase", JSON.stringify(customDatabase));
+  try {
+    localStorage.setItem("footCoachDatabase", JSON.stringify(customDatabase));
+  } catch (error) {
+    console.warn("Database importada mantida apenas nesta sessao.", error);
+    localStorage.removeItem("footCoachDatabase");
+  }
   clubSelectDivision = 1;
   setDatabaseStatus();
   render();
@@ -1569,15 +1574,18 @@ function createExtraCompetitions(clubList, competitions = {}, userClubId = null)
 
 function createNewGame(clubId, mode = selectedGameMode || "free") {
   const sourceClubs = activeClubs();
-  const leagueClubs = sourceClubs.map((club, index) => ({
-    ...club,
-    division: club.division || 1,
-    facilities: club.facilities || defaultFacilities(club),
-    squad: createSquad(club, index * 17),
-    stats: baseClubStats(),
-    finance: { lastPrize: 0, lastRevenue: 0, lastSeasonTotal: 0 },
-    cup: { bestRound: 0, eliminated: false }
-  }));
+  const leagueClubs = sourceClubs.map((club, index) => {
+    const { players, ...clubState } = club;
+    return {
+      ...clubState,
+      division: club.division || 1,
+      facilities: club.facilities || defaultFacilities(club),
+      squad: createSquad(club, index * 17),
+      stats: baseClubStats(),
+      finance: { lastPrize: 0, lastRevenue: 0, lastSeasonTotal: 0 },
+      cup: { bestRound: 0, eliminated: false }
+    };
+  });
   leagueClubs.forEach((club, index) => ensureClubDevelopment(club, index));
   const game = {
     userClubId: clubId,
@@ -6705,8 +6713,19 @@ function saveState() {
   currentSaveSlot = currentSaveSlot || firstAvailableSaveSlot();
   state.saveSlot = currentSaveSlot;
   state.savedAt = Date.now();
-  localStorage.setItem(saveSlotKey(currentSaveSlot), JSON.stringify(state));
-  localStorage.setItem(recentSaveKey, String(currentSaveSlot));
+  try {
+    localStorage.setItem(saveSlotKey(currentSaveSlot), JSON.stringify(state));
+    localStorage.setItem(recentSaveKey, String(currentSaveSlot));
+  } catch (error) {
+    console.warn("Espaco local insuficiente. Limpando database importada temporaria e tentando salvar novamente.", error);
+    try {
+      localStorage.removeItem("footCoachDatabase");
+      localStorage.setItem(saveSlotKey(currentSaveSlot), JSON.stringify(state));
+      localStorage.setItem(recentSaveKey, String(currentSaveSlot));
+    } catch (retryError) {
+      console.warn("Nao foi possivel salvar o jogo neste navegador.", retryError);
+    }
+  }
 }
 
 function loadState(slot = null) {
