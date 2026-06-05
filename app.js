@@ -757,8 +757,48 @@ function normalizeClubData(rawClub, index) {
   };
 }
 
+function cleanDatabaseText(input) {
+  let text = String(input || "").replace(/^\uFEFF/, "").replace(/\u0000/g, "").trim();
+  if (text.startsWith("data:")) {
+    const comma = text.indexOf(",");
+    if (comma >= 0) {
+      const header = text.slice(0, comma);
+      const payload = text.slice(comma + 1);
+      text = header.includes(";base64") ? atob(payload) : decodeURIComponent(payload);
+    }
+  }
+  return text.replace(/^\uFEFF/, "").trim();
+}
+
+function explainDatabaseParseError(error, text) {
+  const clean = cleanDatabaseText(text);
+  if (!clean) return "Arquivo vazio. Escolha um arquivo .json valido.";
+  if (/^<!doctype html/i.test(clean) || /^<html/i.test(clean)) {
+    return "O arquivo importado parece ser uma pagina HTML, nao um JSON. Baixe o arquivo bruto/raw da database e tente de novo.";
+  }
+  if (!clean.startsWith("{") && !clean.startsWith("[")) {
+    return "O arquivo nao comeca como JSON. Verifique se voce baixou o arquivo .json correto.";
+  }
+  const match = String(error?.message || "").match(/position\s+(\d+)/i);
+  if (match) {
+    const pos = Number(match[1]);
+    const start = Math.max(0, pos - 60);
+    const end = Math.min(clean.length, pos + 60);
+    return `${error.message}. Trecho perto do erro: ${clean.slice(start, end)}`;
+  }
+  return error?.message || String(error);
+}
+
 function sanitizeDatabase(input) {
-  const parsed = typeof input === "string" ? JSON.parse(input) : input;
+  let parsed = input;
+  if (typeof input === "string") {
+    const clean = cleanDatabaseText(input);
+    try {
+      parsed = JSON.parse(clean);
+    } catch (error) {
+      throw new Error(explainDatabaseParseError(error, clean));
+    }
+  }
   if (!parsed || !Array.isArray(parsed.clubs) || parsed.clubs.length < 2) {
     throw new Error("A database precisa ter pelo menos 2 clubes em um array chamado clubs.");
   }
@@ -914,6 +954,16 @@ function clearCustomDatabase() {
   clubSelectDivision = 1;
   setDatabaseStatus("Base atual: generica FootCoach.");
   render();
+}
+
+async function readDatabaseFile(file) {
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder("utf-16le").decode(buffer);
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder("utf-16be").decode(buffer);
+  const nullsInOddBytes = bytes.slice(1, Math.min(bytes.length, 80)).filter((_, index) => index % 2 === 0 && bytes[index + 1] === 0).length;
+  if (nullsInOddBytes > 10) return new TextDecoder("utf-16le").decode(buffer);
+  return new TextDecoder("utf-8").decode(buffer);
 }
 
 function weakestSecondDivisionClubIds() {
@@ -7053,21 +7103,13 @@ function wireEvents() {
       const file = event.target.files?.[0];
       if (!file) return;
       showLoading("Lendo arquivo e montando a database do save...", "Importando database");
-      const reader = new FileReader();
-      reader.onload = () => {
-        try {
-          applyCustomDatabase(String(reader.result || ""));
-        } catch (error) {
-          setDatabaseStatus(`Erro na database: ${error.message}`);
-        } finally {
+      readDatabaseFile(file)
+        .then((text) => applyCustomDatabase(text))
+        .catch((error) => setDatabaseStatus(`Erro na database: ${error.message}`))
+        .finally(() => {
+          event.target.value = "";
           setTimeout(() => hideLoading(), 80);
-        }
-      };
-      reader.onerror = () => {
-        setDatabaseStatus("Erro ao ler o arquivo da database.");
-        hideLoading(true);
-      };
-      reader.readAsText(file);
+        });
       return;
     }
 
