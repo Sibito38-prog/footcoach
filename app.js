@@ -476,6 +476,7 @@ function safeRender(fallbackMessage = "Nao foi possivel atualizar a tela.") {
 }
 
 function resetTransientUiState() {
+  if (dayAdvanceTimer) stopDayAdvance(false);
   stopLiveTimer();
   draggedPlayer = null;
   draggedSlot = -1;
@@ -2732,7 +2733,15 @@ function finishCupRound() {
   cup.currentUserMatch = null;
 }
 
-function advanceDay() {
+function updateDayAdvanceProgress() {
+  const button = document.querySelector("#advanceDayBtn");
+  if (button) button.textContent = `Parar (${dateShort(state.day)})`;
+  const calendarMeta = document.querySelector("#calendarMeta");
+  if (calendarMeta) calendarMeta.textContent = `${dateFull()} - avancando dias`;
+}
+
+function advanceDay(options = {}) {
+  const { renderAfter = true, saveAfter = true } = options;
   if (!state || state.liveMatch || !nextUserFixture() || isMatchDay()) return false;
   const inboxCount = (state.inbox || []).length;
   const previousDay = state.day;
@@ -2748,14 +2757,14 @@ function advanceDay() {
   processYouthAcademies(previousDay);
   processScoutingJobs();
   prepareCupRoundIfDue();
-  updateTransferLists();
+  if (state.day % 3 === 0 || isTransferWindowOpen()) updateTransferLists();
   processDailyMarket();
   processPendingProposals();
   processIncomingCounters();
   processOfferExpirations();
   if (isMatchDay()) pushNews(`Dia ${state.day}: dia de jogo contra ${nextOpponent().name}.`);
-  saveState();
-  render();
+  if (saveAfter) saveState();
+  if (renderAfter) safeRender("O dia avancou, mas a atualizacao da tela encontrou um erro.");
   return (state.inbox || []).length > inboxCount;
 }
 
@@ -2763,17 +2772,36 @@ function startDayAdvance() {
   if (!state || dayAdvanceTimer || state.liveMatch || isMatchDay() || !nextUserFixture()) return;
   const button = document.querySelector("#advanceDayBtn");
   if (button) button.textContent = "Parar";
-  dayAdvanceTimer = setInterval(() => {
-    const stoppedByInbox = advanceDay();
-    if (!state || state.liveMatch || isMatchDay() || !nextUserFixture() || stoppedByInbox) stopDayAdvance();
-  }, 700);
+  showLoading("Avancando calendario, mercado e treinos...", "Avancando dias");
+  hideLoading();
+  const tick = () => {
+    if (!state || state.liveMatch || isMatchDay() || !nextUserFixture()) {
+      stopDayAdvance(true);
+      return;
+    }
+    let stoppedByInbox = false;
+    const batchLimit = 3;
+    for (let index = 0; index < batchLimit; index += 1) {
+      stoppedByInbox = advanceDay({ renderAfter: false, saveAfter: false });
+      if (!state || state.liveMatch || isMatchDay() || !nextUserFixture() || stoppedByInbox) break;
+    }
+    updateDayAdvanceProgress();
+    if (!state || state.liveMatch || isMatchDay() || !nextUserFixture() || stoppedByInbox) {
+      stopDayAdvance(true);
+      return;
+    }
+    dayAdvanceTimer = setTimeout(tick, 180);
+  };
+  dayAdvanceTimer = setTimeout(tick, 80);
 }
 
-function stopDayAdvance() {
-  if (dayAdvanceTimer) clearInterval(dayAdvanceTimer);
+function stopDayAdvance(renderAfter = true) {
+  if (dayAdvanceTimer) clearTimeout(dayAdvanceTimer);
   dayAdvanceTimer = null;
   const button = document.querySelector("#advanceDayBtn");
   if (button) button.textContent = "Avancar dias";
+  if (state) saveState();
+  if (renderAfter && state) safeRender("O avanco de dias terminou, mas a atualizacao da tela encontrou um erro.");
 }
 
 function toggleDayAdvance() {
@@ -2786,8 +2814,8 @@ function processDailyMarket() {
     const newOffers = generateOffers();
     addIncomingOffers(newOffers);
   }
-  simulateAiReleaseClauses();
-  if (rng(1, 100) <= 28) {
+  if (state.day % 4 === 0) simulateAiReleaseClauses();
+  if (state.day % 3 === 0 && rng(1, 100) <= 34) {
     simulateAiTransfers();
     state.market = generateMarket();
   }
@@ -5415,7 +5443,7 @@ function render() {
   document.querySelector("#moraleStat").textContent = Math.round(club.squad.reduce((sum, p) => sum + p.morale, 0) / club.squad.length);
   document.querySelector("#ratingStat").textContent = displayPower.total.toFixed(1);
   document.querySelector("#nextMatch").textContent = nextFixture ? `${nextFixture.home.name} x ${nextFixture.away.name} - ${nextFixture.competition}` : "Fim da temporada";
-  if ((isMatchDay() || !nextFixture || state.liveMatch) && dayAdvanceTimer) stopDayAdvance();
+  if ((isMatchDay() || !nextFixture || state.liveMatch) && dayAdvanceTimer) stopDayAdvance(false);
   document.querySelector("#advanceDayBtn").classList.toggle("hidden", isMatchDay() || !nextFixture || Boolean(state.liveMatch));
   document.querySelector("#advanceDayBtn").disabled = !nextFixture || Boolean(state.liveMatch) || isMatchDay();
   document.querySelector("#advanceDayBtn").textContent = dayAdvanceTimer ? "Parar" : "Avancar dias";
