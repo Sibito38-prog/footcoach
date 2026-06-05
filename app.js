@@ -377,6 +377,7 @@ let loadingDepth = 0;
 let deferredInstallPrompt = null;
 let tapMovePlayer = null;
 let tapMoveSlot = -1;
+let matchSimRunning = false;
 
 const saveSlotKeys = ["footCoachSave1", "footCoachSave2", "footCoachSave3"];
 const recentSaveKey = "footCoachRecentSlot";
@@ -2755,8 +2756,21 @@ function setDayAdvanceOverlay(active) {
   if (active) updateDayAdvanceProgress();
 }
 
+function setMatchSimOverlay(active, message = "Preparando jogo...") {
+  const overlay = document.querySelector("#matchSimOverlay");
+  if (!overlay) return;
+  const text = document.querySelector("#matchSimMessage");
+  if (text) text.textContent = message;
+  overlay.classList.toggle("hidden", !active);
+  overlay.setAttribute("aria-hidden", active ? "false" : "true");
+}
+
+function uiPause(delay = 0) {
+  return new Promise((resolve) => setTimeout(() => requestAnimationFrame(resolve), delay));
+}
+
 function advanceDay(options = {}) {
-  const { renderAfter = true, saveAfter = true } = options;
+  const { renderAfter = true, saveAfter = true, autoAdvance = false } = options;
   if (!state || state.liveMatch || !nextUserFixture() || isMatchDay()) return false;
   const inboxCount = (state.inbox || []).length;
   const previousDay = state.day;
@@ -2772,8 +2786,8 @@ function advanceDay(options = {}) {
   processYouthAcademies(previousDay);
   processScoutingJobs();
   prepareCupRoundIfDue();
-  if (state.day % 3 === 0 || isTransferWindowOpen()) updateTransferLists();
-  processDailyMarket();
+  if (!autoAdvance || state.day % 7 === 0 || isTransferWindowOpen()) updateTransferLists();
+  processDailyMarket(autoAdvance);
   processPendingProposals();
   processIncomingCounters();
   processOfferExpirations();
@@ -2793,15 +2807,15 @@ function startDayAdvance() {
       stopDayAdvance(true);
       return;
     }
-    const stoppedByInbox = advanceDay({ renderAfter: false, saveAfter: false });
+    const stoppedByInbox = advanceDay({ renderAfter: false, saveAfter: false, autoAdvance: true });
     updateDayAdvanceProgress();
     if (!state || state.liveMatch || isMatchDay() || !nextUserFixture() || stoppedByInbox) {
       stopDayAdvance(true);
       return;
     }
-    dayAdvanceTimer = setTimeout(() => requestAnimationFrame(tick), 110);
+    dayAdvanceTimer = setTimeout(() => requestAnimationFrame(tick), 170);
   };
-  dayAdvanceTimer = setTimeout(() => requestAnimationFrame(tick), 120);
+  dayAdvanceTimer = setTimeout(() => requestAnimationFrame(tick), 160);
 }
 
 function stopDayAdvance(renderAfter = true) {
@@ -2819,13 +2833,14 @@ function toggleDayAdvance() {
   else startDayAdvance();
 }
 
-function processDailyMarket() {
-  if (state.day % 3 === 0 && state.offers.length < 5) {
+function processDailyMarket(autoAdvance = false) {
+  const offerInterval = autoAdvance ? 5 : 3;
+  if (state.day % offerInterval === 0 && state.offers.length < 5) {
     const newOffers = generateOffers();
     addIncomingOffers(newOffers);
   }
-  if (state.day % 7 === 0) simulateAiReleaseClauses();
-  if (state.day % 5 === 0 && rng(1, 100) <= 38) {
+  if (state.day % (autoAdvance ? 10 : 7) === 0) simulateAiReleaseClauses();
+  if (state.day % (autoAdvance ? 8 : 5) === 0 && rng(1, 100) <= 38) {
     simulateAiTransfers();
     state.market = generateMarket();
   }
@@ -4659,13 +4674,34 @@ function matchBestPlayer(lineup, ratings = {}) {
   return lineupRatings(lineup, ratings).sort((a, b) => b.rating - a.rating)[0] || { name: "-", slot: "-", rating: 0 };
 }
 
-function quickSimMatch() {
+async function quickSimMatch() {
   if (!isMatchDay()) return;
+  if (matchSimRunning) return;
   if (!state.liveMatch && notifyUnavailableForMatch()) return;
-  if (!state.liveMatch) startLiveMatch();
-  if (!state.liveMatch) return;
-  stopLiveTimer();
-  advanceLiveMatch(true);
+  matchSimRunning = true;
+  setMatchSimOverlay(true, "Preparando escalacoes e plano de jogo...");
+  await uiPause(80);
+  try {
+    if (!state.liveMatch) startLiveMatch();
+    if (!state.liveMatch) return;
+    stopLiveTimer();
+    while (state.liveMatch && state.liveMatch.minute < 90) {
+      state.liveMatch.minute = Math.min(90, state.liveMatch.minute + rng(8, 14));
+      setMatchSimOverlay(true, `${state.liveMatch.minute}' - simulando lances e estatisticas...`);
+      playLiveSegment();
+      await uiPause(70);
+    }
+    if (state.liveMatch) {
+      setMatchSimOverlay(true, "Fechando sumula, notas e estatisticas...");
+      await uiPause(80);
+      finishLiveMatch();
+      saveState();
+      safeRender("A partida foi simulada, mas a tela de resumo encontrou um erro.");
+    }
+  } finally {
+    matchSimRunning = false;
+    setMatchSimOverlay(false);
+  }
 }
 
 function finishLiveMatch() {
@@ -5459,8 +5495,8 @@ function render() {
   document.querySelector("#advanceDayBtn").textContent = dayAdvanceTimer ? "Parar" : "Avancar dias";
   document.querySelector("#liveMatchBtn").classList.toggle("hidden", !isMatchDay());
   document.querySelector("#quickSimBtn").classList.toggle("hidden", !isMatchDay());
-  document.querySelector("#liveMatchBtn").disabled = Boolean(state.liveMatch) || !isMatchDay();
-  document.querySelector("#quickSimBtn").disabled = !isMatchDay();
+  document.querySelector("#liveMatchBtn").disabled = Boolean(state.liveMatch) || !isMatchDay() || matchSimRunning;
+  document.querySelector("#quickSimBtn").disabled = !isMatchDay() || matchSimRunning;
   document.querySelector("#matchTabButton").classList.toggle("hidden", !state.liveMatch);
   document.querySelectorAll(".tab").forEach((tab) => {
     const locked = Boolean(state.liveMatch) && tab.dataset.tab !== "match";
@@ -5579,6 +5615,7 @@ function renderLiveMatch() {
   document.querySelector("#liveScore").textContent = `${state.liveMatch.homeName} ${homeGoals} x ${awayGoals} ${state.liveMatch.awayName}`;
   document.querySelector("#liveMinute").textContent = `${state.liveMatch.minute}'`;
   document.querySelector("#pauseMatchBtn").textContent = state.liveMatch.paused ? "Continuar" : "Pausar";
+  document.querySelector("#finishMatchBtn").disabled = matchSimRunning;
   document.querySelector("#liveStats").innerHTML = `
     <article><span>Finalizacoes</span><strong>${state.liveMatch.stats.userShots} x ${state.liveMatch.stats.oppShots}</strong></article>
     <article><span>Posse</span><strong>${state.liveMatch.stats.userPossession}% x ${state.liveMatch.stats.oppPossession}%</strong></article>
@@ -7074,7 +7111,7 @@ function wireEvents() {
     if (event.target.matches("#stopDayAdvanceOverlayBtn")) stopDayAdvance(true);
     if (event.target.matches("[data-close-alert]")) closeAlertModal();
     if (event.target.matches("#pauseMatchBtn")) toggleLivePause();
-    if (event.target.matches("#finishMatchBtn")) advanceLiveMatch(true);
+    if (event.target.matches("#finishMatchBtn")) quickSimMatch();
     if (event.target.matches("#autoLineupBtn")) resetLineup();
     if (event.target.matches("#prevMonthBtn")) {
       state.calendarMonth = Math.max(0, (state.calendarMonth ?? currentMonthIndex()) - 1);
