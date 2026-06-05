@@ -442,6 +442,57 @@ function runWithLoading(message, callback, title = "Carregando") {
   }, 30);
 }
 
+function safeRender(fallbackMessage = "Nao foi possivel atualizar a tela.") {
+  try {
+    render();
+    return true;
+  } catch (error) {
+    console.error("Erro ao renderizar o jogo.", error);
+    hideLoading(true);
+    if (state) {
+      state.alertModal = {
+        title: "Erro ao abrir tela",
+        body: `${fallbackMessage} O save foi preservado. Tente voltar ao menu e carregar novamente. Detalhe: ${error.message || error}`
+      };
+      try {
+        document.querySelector("#mainMenu")?.classList.add("hidden");
+        document.querySelector("#modeSelect")?.classList.add("hidden");
+        document.querySelector("#clubSelect")?.classList.add("hidden");
+        document.querySelector("#gameView")?.classList.remove("hidden");
+        renderAlertModal();
+      } catch (modalError) {
+        console.warn("Falha ao mostrar alerta de renderizacao.", modalError);
+      }
+    } else {
+      menuScreen = "menu";
+      document.querySelector("#mainMenu")?.classList.remove("hidden");
+      document.querySelector("#modeSelect")?.classList.add("hidden");
+      document.querySelector("#clubSelect")?.classList.add("hidden");
+      document.querySelector("#gameView")?.classList.add("hidden");
+      setDatabaseStatus(`Erro ao atualizar tela: ${error.message || error}`);
+    }
+    return false;
+  }
+}
+
+function resetTransientUiState() {
+  stopLiveTimer();
+  draggedPlayer = null;
+  draggedSlot = -1;
+  tapMovePlayer = null;
+  tapMoveSlot = -1;
+  document.body?.classList.remove("dragging-player", "tap-moving-player");
+}
+
+function prepareStateForEntry() {
+  if (!state) return;
+  state.negotiation = null;
+  state.offerModal = null;
+  state.alertModal = null;
+  if (!state.liveMatch) showTab("dashboard");
+  else showTab("match");
+}
+
 function updateInstallButton() {
   const button = document.querySelector("#installAppBtn");
   if (!button) return;
@@ -5412,10 +5463,12 @@ function showTab(name) {
 }
 
 function optionList(select, values, selected) {
+  if (!select) return;
   select.innerHTML = values.map((value) => `<option value="${value}" ${value === selected ? "selected" : ""}>${value}</option>`).join("");
 }
 
 function formationOptionList(select) {
+  if (!select) return;
   select.innerHTML = formationOptions.map((value) => {
     const label = value === "Personalizada" && state.tactics.formation === "Personalizada" ? formationDisplayName() : value;
     return `<option value="${value}" ${value === state.tactics.formation ? "selected" : ""}>${label}</option>`;
@@ -5432,10 +5485,12 @@ function renderOptions() {
   optionList(document.querySelector("#liveMentalitySelect"), mentalities, liveTactics.mentality);
   optionList(document.querySelector("#liveAttackStyleSelect"), attackStyles, liveTactics.attackStyle);
   optionList(document.querySelector("#liveDefenseStyleSelect"), defenseStyles, liveTactics.defenseStyle);
-  document.querySelector("#matchSpeedSelect").value = String(state.liveMatch?.speed || state.matchSpeed || 1500);
-  optionList(document.querySelector("#positionFilter"), ["all", ...fieldPositionOrder], document.querySelector("#positionFilter").value || "all");
+  const speedSelect = document.querySelector("#matchSpeedSelect");
+  if (speedSelect) speedSelect.value = String(state.liveMatch?.speed || state.matchSpeed || 1500);
+  const positionFilter = document.querySelector("#positionFilter");
+  optionList(positionFilter, ["all", ...fieldPositionOrder], positionFilter?.value || "all");
   optionList(document.querySelector("#transferClubFilter"), ["all", ...state.clubs.map((club) => club.id)], transferClubValue);
-  document.querySelector("#transferClubFilter").querySelectorAll("option").forEach((option) => {
+  document.querySelector("#transferClubFilter")?.querySelectorAll("option").forEach((option) => {
     if (option.value === "all") option.textContent = "Todos os clubes";
     else option.textContent = state.clubs.find((club) => club.id === option.value)?.name || option.value;
   });
@@ -6860,11 +6915,12 @@ function wireEvents() {
   document.addEventListener("click", (event) => {
     const target = event.target.closest("button") || event.target;
     if (target.matches("#newSaveBtn")) {
+      resetTransientUiState();
       state = null;
       currentSaveSlot = firstAvailableSaveSlot();
       selectedGameMode = null;
       menuScreen = "mode";
-      render();
+      safeRender("Nao foi possivel abrir a tela de novo save.");
       return;
     }
     if (target.matches("#installAppBtn")) {
@@ -6874,17 +6930,21 @@ function wireEvents() {
     if (handleTapMove(event.target)) return;
     if (target.matches("#loadRecentBtn")) {
       runWithLoading("Abrindo o save mais recente...", () => {
+        resetTransientUiState();
         const storedRecent = Number(localStorage.getItem(recentSaveKey) || 0);
         const recent = rawSaveForSlot(storedRecent) ? storedRecent : [1, 2, 3].find((slot) => rawSaveForSlot(slot));
         state = loadState(recent);
-        if (state) render();
+        prepareStateForEntry();
+        if (state) safeRender("O save foi carregado, mas a tela principal encontrou um erro.");
       }, "Carregando save");
       return;
     }
     if (target.matches("[data-load-slot]")) {
       runWithLoading("Restaurando temporada, elenco e competicoes...", () => {
+        resetTransientUiState();
         state = loadState(Number(target.dataset.loadSlot));
-        if (state) render();
+        prepareStateForEntry();
+        if (state) safeRender("O save foi carregado, mas a tela principal encontrou um erro.");
       }, "Carregando save");
       return;
     }
@@ -6946,9 +7006,11 @@ function wireEvents() {
     const clubButton = event.target.closest("[data-club]");
     if (clubButton) {
       runWithLoading("Criando clubes, calendario, elencos, base e competicoes...", () => {
+        resetTransientUiState();
         state = createNewGame(clubButton.dataset.club, selectedGameMode || "free");
         saveState();
-        render();
+        prepareStateForEntry();
+        safeRender("O save foi criado, mas a tela principal encontrou um erro.");
       }, "Criando save");
       return;
     }
@@ -7091,13 +7153,13 @@ function wireEvents() {
     }
 
     if (event.target.matches("#mainMenuBtn")) {
-      stopLiveTimer();
+      resetTransientUiState();
       saveState();
       state = null;
       selectedGameMode = null;
       clubSelectDivision = 1;
       menuScreen = "menu";
-      render();
+      safeRender("Nao foi possivel voltar ao menu inicial.");
     }
   });
 
