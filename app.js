@@ -782,6 +782,9 @@ function explainDatabaseParseError(error, text) {
   const match = String(error?.message || "").match(/position\s+(\d+)/i);
   if (match) {
     const pos = Number(match[1]);
+    if (pos >= clean.length - 12) {
+      return `${error.message}. O arquivo parece estar incompleto ou truncado no final. Baixe novamente o JSON bruto/raw ou importe por link.`;
+    }
     const start = Math.max(0, pos - 60);
     const end = Math.min(clean.length, pos + 60);
     return `${error.message}. Trecho perto do erro: ${clean.slice(start, end)}`;
@@ -964,6 +967,44 @@ async function readDatabaseFile(file) {
   const nullsInOddBytes = bytes.slice(1, Math.min(bytes.length, 80)).filter((_, index) => index % 2 === 0 && bytes[index + 1] === 0).length;
   if (nullsInOddBytes > 10) return new TextDecoder("utf-16le").decode(buffer);
   return new TextDecoder("utf-8").decode(buffer);
+}
+
+function normalizeDatabaseUrl(input) {
+  const raw = String(input || "").trim();
+  if (!raw) throw new Error("Informe um link para a database.");
+  const url = new URL(raw, window.location.href);
+  if (url.hostname === "github.com" && url.pathname.includes("/blob/")) {
+    const parts = url.pathname.split("/").filter(Boolean);
+    const blobIndex = parts.indexOf("blob");
+    if (parts.length > blobIndex + 2) {
+      const owner = parts[0];
+      const repo = parts[1];
+      const branch = parts[blobIndex + 1];
+      const filePath = parts.slice(blobIndex + 2).join("/");
+      return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filePath}`;
+    }
+  }
+  if (url.hostname === "github.com" && url.pathname.includes("/raw/")) {
+    return url.href.replace("https://github.com/", "https://raw.githubusercontent.com/").replace("/raw/", "/");
+  }
+  return url.href;
+}
+
+async function importDatabaseFromUrl(input) {
+  showLoading("Baixando e validando a database...", "Importando database");
+  try {
+    const url = normalizeDatabaseUrl(input);
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) throw new Error(`Nao foi possivel baixar o arquivo (${response.status}).`);
+    const text = await response.text();
+    applyCustomDatabase(text);
+    const inputEl = document.querySelector("#databaseUrlInput");
+    if (inputEl) inputEl.value = url;
+  } catch (error) {
+    setDatabaseStatus(`Erro na database: ${error.message}`);
+  } finally {
+    setTimeout(() => hideLoading(), 80);
+  }
 }
 
 function weakestSecondDivisionClubIds() {
@@ -6876,6 +6917,10 @@ function wireEvents() {
           setDatabaseStatus(`Erro na database: ${error.message}`);
         }
       }, "Importando database");
+      return;
+    }
+    if (target.matches("#importDatabaseUrlBtn")) {
+      importDatabaseFromUrl(document.querySelector("#databaseUrlInput")?.value || "");
       return;
     }
     if (target.matches("#clearDatabaseBtn")) {
