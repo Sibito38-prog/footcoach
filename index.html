@@ -481,6 +481,16 @@
         </div>
       </div>
     </div>
+    <div id="dayAdvanceOverlay" class="loading-overlay day-advance-overlay hidden" role="status" aria-live="polite" aria-busy="true" aria-hidden="true">
+      <div class="loading-card day-advance-card">
+        <span class="loading-spinner" aria-hidden="true"></span>
+        <div>
+          <strong>Avancando dias</strong>
+          <p id="dayAdvanceMessage">Processando calendario...</p>
+        </div>
+        <button id="stopDayAdvanceOverlayBtn" class="secondary-action small-action">Parar</button>
+      </div>
+    </div>
     <script src="app.js"></script>
   </body>
 </html>

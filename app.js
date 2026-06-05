@@ -2738,6 +2738,21 @@ function updateDayAdvanceProgress() {
   if (button) button.textContent = `Parar (${dateShort(state.day)})`;
   const calendarMeta = document.querySelector("#calendarMeta");
   if (calendarMeta) calendarMeta.textContent = `${dateFull()} - avancando dias`;
+  const message = document.querySelector("#dayAdvanceMessage");
+  const fixture = nextUserFixture();
+  if (message) {
+    message.textContent = fixture
+      ? `${dateFull()} - proximo jogo em ${Math.max(0, fixture.day - state.day)} dia(s).`
+      : `${dateFull()} - temporada sem proximo jogo.`;
+  }
+}
+
+function setDayAdvanceOverlay(active) {
+  const overlay = document.querySelector("#dayAdvanceOverlay");
+  if (!overlay) return;
+  overlay.classList.toggle("hidden", !active);
+  overlay.setAttribute("aria-hidden", active ? "false" : "true");
+  if (active) updateDayAdvanceProgress();
 }
 
 function advanceDay(options = {}) {
@@ -2772,32 +2787,27 @@ function startDayAdvance() {
   if (!state || dayAdvanceTimer || state.liveMatch || isMatchDay() || !nextUserFixture()) return;
   const button = document.querySelector("#advanceDayBtn");
   if (button) button.textContent = "Parar";
-  showLoading("Avancando calendario, mercado e treinos...", "Avancando dias");
-  hideLoading();
+  setDayAdvanceOverlay(true);
   const tick = () => {
     if (!state || state.liveMatch || isMatchDay() || !nextUserFixture()) {
       stopDayAdvance(true);
       return;
     }
-    let stoppedByInbox = false;
-    const batchLimit = 3;
-    for (let index = 0; index < batchLimit; index += 1) {
-      stoppedByInbox = advanceDay({ renderAfter: false, saveAfter: false });
-      if (!state || state.liveMatch || isMatchDay() || !nextUserFixture() || stoppedByInbox) break;
-    }
+    const stoppedByInbox = advanceDay({ renderAfter: false, saveAfter: false });
     updateDayAdvanceProgress();
     if (!state || state.liveMatch || isMatchDay() || !nextUserFixture() || stoppedByInbox) {
       stopDayAdvance(true);
       return;
     }
-    dayAdvanceTimer = setTimeout(tick, 180);
+    dayAdvanceTimer = setTimeout(() => requestAnimationFrame(tick), 110);
   };
-  dayAdvanceTimer = setTimeout(tick, 80);
+  dayAdvanceTimer = setTimeout(() => requestAnimationFrame(tick), 120);
 }
 
 function stopDayAdvance(renderAfter = true) {
   if (dayAdvanceTimer) clearTimeout(dayAdvanceTimer);
   dayAdvanceTimer = null;
+  setDayAdvanceOverlay(false);
   const button = document.querySelector("#advanceDayBtn");
   if (button) button.textContent = "Avancar dias";
   if (state) saveState();
@@ -2814,8 +2824,8 @@ function processDailyMarket() {
     const newOffers = generateOffers();
     addIncomingOffers(newOffers);
   }
-  if (state.day % 4 === 0) simulateAiReleaseClauses();
-  if (state.day % 3 === 0 && rng(1, 100) <= 34) {
+  if (state.day % 7 === 0) simulateAiReleaseClauses();
+  if (state.day % 5 === 0 && rng(1, 100) <= 38) {
     simulateAiTransfers();
     state.market = generateMarket();
   }
@@ -7061,6 +7071,7 @@ function wireEvents() {
     if (event.target.matches("#liveMatchBtn")) startLiveMatch();
     if (event.target.matches("#quickSimBtn")) quickSimMatch();
     if (event.target.matches("#advanceDayBtn")) toggleDayAdvance();
+    if (event.target.matches("#stopDayAdvanceOverlayBtn")) stopDayAdvance(true);
     if (event.target.matches("[data-close-alert]")) closeAlertModal();
     if (event.target.matches("#pauseMatchBtn")) toggleLivePause();
     if (event.target.matches("#finishMatchBtn")) advanceLiveMatch(true);
