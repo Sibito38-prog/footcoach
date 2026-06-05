@@ -627,6 +627,14 @@ function nationalityText(player) {
   return nationalityLabel(player.nationality || "BR");
 }
 
+function escapeAttr(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 function ensurePlayerIdentity(player, seed = 0, youth = false) {
   if (!player) return;
   if (player.identityVersion === identityVersion && player.nationality) return;
@@ -636,11 +644,17 @@ function ensurePlayerIdentity(player, seed = 0, youth = false) {
 }
 
 function clubLogo(club, size = "normal") {
-  if (club.logoUrl) {
-    return `<span class="club-logo-image club-logo-${size}"><img src="${club.logoUrl}" alt="" /></span>`;
+  const savedLogo = activeLogoProfiles()[club.id] || {};
+  const logoFromProfile = typeof savedLogo === "string"
+    ? savedLogo
+    : savedLogo.logoUrl || savedLogo.url || savedLogo.crestUrl || savedLogo.path || savedLogo.file || "";
+  const imageUrl = club.logoUrl || logoFromProfile;
+  if (imageUrl) {
+    return `<span class="club-logo-image club-logo-${size}"><img src="${escapeAttr(imageUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" /></span>`;
   }
   const fallbackSymbol = club.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 3).toUpperCase() || club.name.slice(0, 2).toUpperCase();
-  const profile = { shape: "shield", accent: "#f2d16b", symbol: fallbackSymbol, ...(activeLogoProfiles()[club.id] || {}), ...(club.logo || {}) };
+  const savedProfile = typeof savedLogo === "string" ? {} : savedLogo;
+  const profile = { shape: "shield", accent: "#f2d16b", symbol: fallbackSymbol, ...savedProfile, ...(club.logo || {}) };
   return `
     <span class="club-logo club-logo-${size} logo-${profile.shape}" style="--logo-main:${club.color}; --logo-accent:${profile.accent}" aria-hidden="true">
       <span class="club-logo-band"></span>
@@ -779,6 +793,17 @@ function activeLogoProfiles() {
   return { ...clubLogoProfiles, ...(activeDatabase().logos || {}) };
 }
 
+function normalizeLogoProfile(rawLogo) {
+  if (!rawLogo) return null;
+  if (typeof rawLogo === "string") return { logoUrl: rawLogo };
+  if (typeof rawLogo !== "object" || Array.isArray(rawLogo)) return null;
+  const logoUrl = rawLogo.logoUrl || rawLogo.url || rawLogo.crestUrl || rawLogo.logoPath || rawLogo.crestPath || rawLogo.logoFile || rawLogo.path || rawLogo.file || rawLogo.dataUri || rawLogo.logoData || "";
+  return {
+    ...rawLogo,
+    ...(logoUrl ? { logoUrl } : {})
+  };
+}
+
 function normalizeClubData(rawClub, index) {
   const id = String(rawClub.id || rawClub.name || `club-${index + 1}`)
     .toLowerCase()
@@ -787,6 +812,9 @@ function normalizeClubData(rawClub, index) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "") || `club-${index + 1}`;
   const division = clamp(Number(rawClub.division || (index < 20 ? 1 : 2)), 1, 6);
+  const normalizedLogo = normalizeLogoProfile(rawClub.logo || rawClub.crest || null);
+  const imageLogo = rawClub.logoUrl || rawClub.crestUrl || rawClub.logoPath || rawClub.crestPath || rawClub.logoFile || rawClub.logoImage || rawClub.logoData || rawClub.dataUri || rawClub.image || normalizedLogo?.logoUrl || "";
+  const shapeLogo = normalizedLogo && !normalizedLogo.logoUrl ? normalizedLogo : (normalizedLogo && (normalizedLogo.shape || normalizedLogo.symbol || normalizedLogo.accent) ? normalizedLogo : null);
   return {
     id,
     name: String(rawClub.name || `Clube ${index + 1}`),
@@ -798,8 +826,8 @@ function normalizeClubData(rawClub, index) {
     reputation: clamp(Number(rawClub.reputation ?? (division === 1 ? 68 : 52)), 1, 100),
     style: String(rawClub.style || "clube importado da database editavel"),
     color: rawClub.color || "#315f6f",
-    logo: rawClub.logo || null,
-    logoUrl: rawClub.logoUrl || "",
+    logo: shapeLogo,
+    logoUrl: imageLogo,
     officialLogoPath: rawClub.officialLogoPath || "",
     facilities: rawClub.facilities || rawClub.installations || null,
     youthAcademy: Array.isArray(rawClub.youthAcademy) ? rawClub.youthAcademy : Array.isArray(rawClub.youthPlayers) ? rawClub.youthPlayers : null,
@@ -873,9 +901,13 @@ function sanitizeDatabase(input) {
       throw new Error(`A divisao ${division} precisa ter pelo menos 2 clubes.`);
     }
   });
-  const logos = { ...(parsed.logos || {}) };
+  const logos = {};
+  Object.entries(parsed.logos || {}).forEach(([clubId, logo]) => {
+    const normalizedLogo = normalizeLogoProfile(logo);
+    if (normalizedLogo) logos[clubId] = normalizedLogo;
+  });
   normalizedClubs.forEach((club) => {
-    if (club.logo) logos[club.id] = club.logo;
+    if (club.logo || club.logoUrl) logos[club.id] = { ...(logos[club.id] || {}), ...(club.logo || {}), ...(club.logoUrl ? { logoUrl: club.logoUrl } : {}) };
   });
   return {
     databaseName: String(parsed.databaseName || parsed.name || "Database importada"),
@@ -901,6 +933,17 @@ function sampleDatabaseText() {
       ratingRule: "rating e opcional; se atributos vierem sem rating, o jogo calcula o geral pela posicao",
       outfieldAttributes: ["pace", "passing", "dribbling", "finishing", "crossing", "tackling", "vision", "stamina"],
       goalkeeperAttributes: ["reflexes", "handling", "positioningGk", "oneOnOne", "distribution", "aerial"],
+      marketLists: {
+        listStatus: "use none, transfer, loan ou blocked em cada jogador",
+        listStatusLocked: "true impede que a IA mude essa lista automaticamente ao criar/atualizar o save",
+        aliases: "tambem aceita transferListed, loanListed, untouchable, notForSale e blockOffers"
+      },
+      logos: {
+        logoUrl: "link direto https://.../escudo.png ou https://.../escudo.svg",
+        logoPath: "caminho local publicado junto do jogo, ex: assets/logos/clube.png",
+        logoData: "data:image/png;base64,... para database totalmente portavel",
+        fallbackLogo: "se nao houver imagem, use logo { shape, accent, symbol } para escudo gerado"
+      },
       yellowCardQuota: 5,
       benchLimit: 9
     },
@@ -926,12 +969,13 @@ function sampleDatabaseText() {
         color: "#143f7a",
         facilities: { training: 4.5, academy: 4, stadium: 4.5 },
         squadSize: 28,
+        logoUrl: "https://exemplo.com/logos/clube-exemplo-a.png",
         logo: { shape: "shield", accent: "#f2c84b", symbol: "CEA" },
         players: [
-          { name: "Goleiro Exemplo", position: "GK", age: 29, nationality: "BRA", potential: 78, reflexes: 82, handling: 76, positioningGk: 78, oneOnOne: 74, distribution: 70, aerial: 77, contractYears: 3 },
-          { name: "Zagueiro Exemplo", position: "CB", age: 27, nationality: "BRA", potential: 78, pace: 62, passing: 68, dribbling: 55, finishing: 38, crossing: 42, tackling: 80, vision: 61, stamina: 75, defending: 82, aerial: 82 },
-          { name: "Meia Exemplo", position: "CM", age: 24, nationality: "BRA", potential: 84, pace: 71, passing: 84, dribbling: 78, finishing: 65, crossing: 68, tackling: 64, vision: 82, stamina: 77, releaseClause: 45 },
-          { name: "Atacante Exemplo", position: "ST", age: 25, nationality: "ARG", potential: 83, pace: 78, passing: 66, dribbling: 76, finishing: 86, crossing: 58, tackling: 35, vision: 70, stamina: 74, attacking: 84, secondaryPosition: "LW" }
+          { name: "Goleiro Exemplo", position: "GK", age: 29, nationality: "BRA", potential: 78, reflexes: 82, handling: 76, positioningGk: 78, oneOnOne: 74, distribution: 70, aerial: 77, contractYears: 3, listStatus: "none", listStatusLocked: true },
+          { name: "Zagueiro Exemplo", position: "CB", age: 27, nationality: "BRA", potential: 78, pace: 62, passing: 68, dribbling: 55, finishing: 38, crossing: 42, tackling: 80, vision: 61, stamina: 75, defending: 82, aerial: 82, listStatus: "blocked", listStatusLocked: true },
+          { name: "Meia Exemplo", position: "CM", age: 24, nationality: "BRA", potential: 84, pace: 71, passing: 84, dribbling: 78, finishing: 65, crossing: 68, tackling: 64, vision: 82, stamina: 77, releaseClause: 45, listStatus: "none", listStatusLocked: true },
+          { name: "Atacante Exemplo", position: "ST", age: 25, nationality: "ARG", potential: 83, pace: 78, passing: 66, dribbling: 76, finishing: 86, crossing: 58, tackling: 35, vision: 70, stamina: 74, attacking: 84, secondaryPosition: "LW", listStatus: "transfer", listStatusLocked: true }
         ]
       },
       {
@@ -952,7 +996,7 @@ function sampleDatabaseText() {
         reputation: 50,
         style: "projeto pequeno, base regional e folha curta",
         color: "#2f6f4e",
-        logoUrl: "assets/logos/clube-exemplo-b.png"
+        logoPath: "assets/logos/clube-exemplo-c.png"
       },
       {
         id: "clube-exemplo-d",
@@ -1282,7 +1326,47 @@ function buildAttributes(position, rating) {
 function normalizePlayerEntry(entry, fallbackPosition) {
   if (!entry) return {};
   if (typeof entry === "string") return { name: entry, position: fallbackPosition };
-  return { ...entry, position: entry.position || fallbackPosition };
+  const normalized = { ...entry, position: entry.position || fallbackPosition };
+  const explicitListStatus = hasExplicitListStatus(entry);
+  normalized.listStatus = normalizeListStatusFromSource(normalized);
+  normalized.listStatusLocked = Boolean(entry.listStatusLocked || explicitListStatus);
+  return normalized;
+}
+
+function normalizeListStatus(value) {
+  const raw = String(value ?? "").trim().toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\s_-]+/g, "");
+  if (!raw || ["none", "no", "nao", "naolistado", "unlisted", "fora", "livre"].includes(raw)) return "none";
+  if (["transfer", "transf", "venda", "vendido", "transferlisted", "listadoparavenda", "listavenda"].includes(raw)) return "transfer";
+  if (["loan", "emprestimo", "emprestar", "loanlisted", "listadoemprestimo", "listaemprestimo"].includes(raw)) return "loan";
+  if (["blocked", "block", "bloqueado", "intocavel", "untouchable", "notforsale", "sempropostas"].includes(raw)) return "blocked";
+  return "none";
+}
+
+function hasExplicitListStatus(source) {
+  return source && [
+    "listStatus",
+    "marketStatus",
+    "transferStatus",
+    "transferListed",
+    "onTransferList",
+    "loanListed",
+    "onLoanList",
+    "blockOffers",
+    "blocked",
+    "untouchable",
+    "notForSale",
+    "listStatusLocked"
+  ].some((key) => Object.prototype.hasOwnProperty.call(source, key));
+}
+
+function normalizeListStatusFromSource(source = {}) {
+  if (source.blockOffers || source.blocked || source.untouchable || source.notForSale) return "blocked";
+  if (source.loanListed || source.onLoanList) return "loan";
+  if (source.transferListed || source.onTransferList) return "transfer";
+  return normalizeListStatus(source.listStatus ?? source.marketStatus ?? source.transferStatus ?? "none");
 }
 
 function sourceNumber(source, key, fallback = null) {
@@ -1348,7 +1432,8 @@ function makePlayer(seed, clubRep, position, entry = null) {
     condition: rng(88, 100),
     matchLoad: 0,
     lastPlayedDay: -20,
-    listStatus: "none",
+    listStatus: normalizeListStatusFromSource(source),
+    listStatusLocked: Boolean(source.listStatusLocked),
     loan: null,
     releaseClause: source.releaseClause === false ? null : sourceNumber(source, "releaseClause", null),
     contractEndDay: sourceNumber(source, "contractEndDay", null) || (source.contractYears ? 365 * clamp(Number(source.contractYears), 1, 5) : 365 * rng(2, 5)),
@@ -1380,7 +1465,6 @@ function makePlayer(seed, clubRep, position, entry = null) {
   if (source.training) player.training = { ...player.training, ...source.training };
   if (source.stats) player.stats = { ...player.stats, ...source.stats };
   if (source.loan) player.loan = source.loan;
-  if (source.listStatus) player.listStatus = source.listStatus;
   player.value = sourceNumber(source, "value", null) ?? calculatePlayerValue(player, clubRep);
   player.wage = sourceNumber(source, "wage", null) ?? calculatePlayerWage(player);
   if (source.releaseClause === undefined) player.releaseClause = realisticReleaseClause(player, clubRep);
@@ -1739,7 +1823,7 @@ function createNewGame(clubId, mode = selectedGameMode || "free") {
     databaseFinance: activeDatabase().finance || {},
     databaseDivisions: activeDatabase().divisions || [],
     databaseCompetitions: activeDatabase().competitions || {},
-    databaseLogos: activeLogoProfiles(),
+    databaseLogos: customDatabase ? { ...(activeDatabase().logos || {}) } : activeLogoProfiles(),
     gameMode: mode,
     coach: initialCoachProfile(sourceClubs.find((club) => club.id === clubId) || sourceClubs[0], mode),
     round: 1,
@@ -1879,7 +1963,8 @@ function migrateState(saved) {
       player.condition = Number.isFinite(player.condition) ? player.condition : 92;
       player.matchLoad = Number.isFinite(player.matchLoad) ? player.matchLoad : 0;
       player.lastPlayedDay = Number.isFinite(player.lastPlayedDay) ? player.lastPlayedDay : -20;
-      player.listStatus = player.listStatus || "none";
+      player.listStatus = normalizeListStatus(player.listStatus || "none");
+      player.listStatusLocked = Boolean(player.listStatusLocked);
       player.yellowCards = Number.isFinite(player.yellowCards) ? player.yellowCards : 0;
       player.redCards = Number.isFinite(player.redCards) ? player.redCards : 0;
       player.suspension = player.suspension && player.suspension.matches > 0 ? player.suspension : null;
@@ -2937,6 +3022,10 @@ function updateTransferLists(includeUser = false) {
       const blockedYouth = player.age <= 22 && depthIndex > 10 && player.potential - player.rating >= 7;
       const expensiveReserve = player.wage > club.budget * 0.018 && depthIndex > 11;
       if (isInjured(player) || player.loan || player.pendingTransfer) return;
+      if (player.listStatusLocked) {
+        player.listStatus = normalizeListStatus(player.listStatus);
+        return;
+      }
       if (protectedIds.has(player.id)) player.listStatus = "blocked";
       else if (player.listStatus === "blocked") player.listStatus = "none";
       else if (blockedYouth) player.listStatus = "loan";
@@ -7192,6 +7281,7 @@ function wireEvents() {
       if (player && !player.loan) {
         const status = event.target.dataset.listStatus;
         player.listStatus = player.listStatus === status ? "none" : status;
+        player.listStatusLocked = false;
         state.market = generateMarket();
         pushNews(`${player.name} ${player.listStatus === "none" ? "foi removido das listas de mercado" : player.listStatus === "blocked" ? "teve propostas bloqueadas pela diretoria" : `entrou na ${listLabel(player.listStatus)}`}.`);
         saveState();
