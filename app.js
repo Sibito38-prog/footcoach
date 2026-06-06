@@ -432,15 +432,45 @@ function hideLoading(force = false) {
 function runWithLoading(message, callback, title = "Carregando") {
   showLoading(message, title);
   setTimeout(() => {
-    try {
-      callback();
-    } catch (error) {
-      console.error(error);
-      if (typeof showAlertModal === "function") showAlertModal("Erro", error.message || String(error));
-    } finally {
-      setTimeout(() => hideLoading(), 80);
-    }
+    requestAnimationFrame(() => {
+      try {
+        callback();
+      } catch (error) {
+        console.error(error);
+        if (typeof showAlertModal === "function") showAlertModal("Erro", error.message || String(error));
+      } finally {
+        setTimeout(() => hideLoading(), 80);
+      }
+    });
   }, 30);
+}
+
+let scheduledContentLoading = null;
+function updateHeavyContent(message, callback, title = "Atualizando") {
+  clearTimeout(scheduledContentLoading);
+  scheduledContentLoading = null;
+  runWithLoading(message, callback, title);
+}
+
+function scheduleHeavyContentUpdate(message, callback, delay = 220) {
+  clearTimeout(scheduledContentLoading);
+  scheduledContentLoading = setTimeout(() => {
+    scheduledContentLoading = null;
+    updateHeavyContent(message, callback);
+  }, delay);
+}
+
+function tabLoadingMessage(tabName) {
+  const messages = {
+    market: "Atualizando mercado, observacoes e propostas...",
+    league: "Atualizando tabelas e competicoes...",
+    calendar: "Montando calendario da temporada...",
+    club: "Atualizando instalacoes e dados do clube...",
+    squad: "Organizando elenco, base e peneiras...",
+    training: "Atualizando plano de treinos e atributos...",
+    lineup: "Atualizando escalacao e encaixe tatico..."
+  };
+  return messages[tabName] || "Atualizando dados da tela...";
 }
 
 function safeRender(fallbackMessage = "Nao foi possivel atualizar a tela.") {
@@ -7375,7 +7405,7 @@ function wireEvents() {
         document.querySelector(`#${tab.dataset.tab}Tab`).classList.add("active");
         render();
       };
-      if (["market", "league", "calendar", "club", "squad"].includes(tab.dataset.tab)) runWithLoading("Atualizando dados da tela...", openTab, "Atualizando");
+      if (["market", "league", "calendar", "club", "squad", "training", "lineup"].includes(tab.dataset.tab)) runWithLoading(tabLoadingMessage(tab.dataset.tab), openTab, "Atualizando");
       else openTab();
       return;
     }
@@ -7391,24 +7421,26 @@ function wireEvents() {
     if (event.target.matches("#prevMonthBtn")) {
       state.calendarMonth = Math.max(0, (state.calendarMonth ?? currentMonthIndex()) - 1);
       saveState();
-      renderCalendar();
+      updateHeavyContent("Montando calendario do mes...", renderCalendar);
     }
     if (event.target.matches("#nextMonthBtn")) {
       const lastMonth = 11;
       state.calendarMonth = Math.min(lastMonth, (state.calendarMonth ?? currentMonthIndex()) + 1);
       saveState();
-      renderCalendar();
+      updateHeavyContent("Montando calendario do mes...", renderCalendar);
     }
     if (event.target.matches("[data-market-section]")) {
       state.marketSubTab = event.target.dataset.marketSection;
       saveState();
-      renderMarketSections();
-      renderMarket();
+      updateHeavyContent("Atualizando mercado e negociacoes...", () => {
+        renderMarketSections();
+        renderMarket();
+      });
     }
     if (event.target.matches("[data-market-player-section]")) {
       state.marketPlayerSubTab = event.target.dataset.marketPlayerSection;
       saveState();
-      renderMarket();
+      updateHeavyContent("Filtrando jogadores do mercado...", renderMarket);
     }
     if (event.target.matches("[data-toggle-interest]")) {
       state.marketInterestList = Array.isArray(state.marketInterestList) ? state.marketInterestList : [];
@@ -7417,17 +7449,17 @@ function wireEvents() {
         ? state.marketInterestList.filter((id) => id !== playerId)
         : [...state.marketInterestList, playerId];
       saveState();
-      renderMarket();
+      updateHeavyContent("Atualizando lista de interesse...", renderMarket);
     }
     if (event.target.matches("#advancedMarketSearchBtn")) {
       state.marketSearchPerformed = true;
       saveState();
-      renderMarket();
+      updateHeavyContent("Buscando jogadores com os criterios definidos...", renderMarket);
     }
     if (event.target.matches("[data-squad-section]")) {
       state.squadSubTab = event.target.dataset.squadSection;
       saveState();
-      renderSquad();
+      updateHeavyContent("Atualizando elenco e categorias...", renderSquad);
     }
     if (event.target.matches("[data-open-proposal]")) openNegotiation(event.target.dataset.openProposal, event.target.dataset.proposalType || "transfer");
     if (event.target.matches("[data-open-contract-only]")) openContractOnly(event.target.dataset.openContractOnly);
@@ -7475,8 +7507,10 @@ function wireEvents() {
     if (event.target.matches("[data-view-youth-intake]")) {
       state.squadSubTab = "intake";
       saveState();
-      showTab("squad");
-      renderSquad();
+      updateHeavyContent("Abrindo peneira da temporada...", () => {
+        showTab("squad");
+        renderSquad();
+      });
     }
     if (event.target.matches("[data-list-player]")) {
       const player = playerById(getUserClub(), event.target.dataset.listPlayer);
@@ -7510,12 +7544,16 @@ function wireEvents() {
       state.selectedClubId = event.target.dataset.viewClub;
       state.previousTab = document.querySelector(".tab.active")?.dataset.tab || "league";
       saveState();
-      showTab("clubProfile");
-      renderClubProfile();
+      updateHeavyContent("Carregando perfil do clube...", () => {
+        showTab("clubProfile");
+        renderClubProfile();
+      });
     }
     if (event.target.matches("[data-close-club-profile]")) {
-      showTab(state.previousTab || "league");
-      render();
+      updateHeavyContent("Voltando para a tela anterior...", () => {
+        showTab(state.previousTab || "league");
+        render();
+      });
     }
 
     if (event.target.matches("#saveBtn")) {
@@ -7600,7 +7638,7 @@ function wireEvents() {
     if (event.target.matches("#competitionViewSelect")) {
       state.leagueView = event.target.value;
       saveState();
-      renderLeague();
+      updateHeavyContent("Atualizando competicao selecionada...", renderLeague);
       return;
     }
 
@@ -7633,16 +7671,16 @@ function wireEvents() {
       render();
     }
 
-    if (event.target.matches("#positionFilter") || event.target.matches("#affordFilter")) renderMarket();
+    if (event.target.matches("#positionFilter") || event.target.matches("#affordFilter")) updateHeavyContent("Filtrando jogadores do mercado...", renderMarket);
     if (event.target.matches("#marketSearchPosition") || event.target.matches("#marketSearchAge")) {
       state.marketSearchPerformed = false;
       saveState();
-      renderMarket();
+      updateHeavyContent("Atualizando criterios de pesquisa...", renderMarket);
     }
-    if (event.target.matches("#squadSort") || event.target.matches("#squadListFilter") || event.target.matches("#squadPositionFilter")) renderSquad();
-    if (event.target.matches("#trainingSort") || event.target.matches("#trainingPositionFilter")) renderTraining();
-    if (event.target.matches("#clubSquadSort") || event.target.matches("#clubSquadSearch")) renderClubProfile();
-    if (event.target.matches("#transferClubFilter")) renderTransferHistory();
+    if (event.target.matches("#squadSort") || event.target.matches("#squadListFilter") || event.target.matches("#squadPositionFilter")) updateHeavyContent("Reorganizando lista de jogadores...", renderSquad);
+    if (event.target.matches("#trainingSort") || event.target.matches("#trainingPositionFilter")) updateHeavyContent("Atualizando jogadores em treino...", renderTraining);
+    if (event.target.matches("#clubSquadSort") || event.target.matches("#clubSquadSearch")) updateHeavyContent("Atualizando elenco do clube...", renderClubProfile);
+    if (event.target.matches("#transferClubFilter")) updateHeavyContent("Filtrando historico de transferencias...", renderTransferHistory);
     if (event.target.matches("#matchSpeedSelect")) setMatchSpeed(event.target.value);
     if (event.target.matches("[data-role-slot]")) setSlotRole(Number(event.target.dataset.roleSlot), event.target.value);
     if (event.target.matches("[data-training-attr]")) {
@@ -7669,14 +7707,14 @@ function wireEvents() {
   });
 
   document.addEventListener("input", (event) => {
-    if (event.target.matches("#marketSearch")) renderMarket();
+    if (event.target.matches("#marketSearch")) scheduleHeavyContentUpdate("Filtrando jogadores do mercado...", renderMarket);
     if (event.target.matches("#marketAdvancedName") || event.target.matches("#marketMaxValue") || event.target.matches("#marketMinRating") || event.target.matches("#marketMaxRating")) {
       state.marketSearchPerformed = false;
-      renderMarket();
+      scheduleHeavyContentUpdate("Atualizando criterios de pesquisa...", renderMarket);
     }
-    if (event.target.matches("#squadSearch")) renderSquad();
-    if (event.target.matches("#trainingSearch")) renderTraining();
-    if (event.target.matches("#transferSearch") || event.target.matches("#transferMinFilter")) renderTransferHistory();
+    if (event.target.matches("#squadSearch")) scheduleHeavyContentUpdate("Buscando jogadores no elenco...", renderSquad);
+    if (event.target.matches("#trainingSearch")) scheduleHeavyContentUpdate("Buscando jogadores em treino...", renderTraining);
+    if (event.target.matches("#transferSearch") || event.target.matches("#transferMinFilter")) scheduleHeavyContentUpdate("Filtrando historico de transferencias...", renderTransferHistory);
   });
 
   document.addEventListener("blur", (event) => {

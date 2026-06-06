@@ -1,4 +1,4 @@
-const CACHE_NAME = "footcoach-pwa-v14";
+const CACHE_NAME = "footcoach-pwa-v15";
 const APP_SHELL = [
   "./",
   "./index.html",
