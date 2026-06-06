@@ -446,6 +446,13 @@ function runWithLoading(message, callback, title = "Carregando") {
 }
 
 let scheduledContentLoading = null;
+const contentRenderCache = {
+  market: new Map(),
+  offers: new Map(),
+  transfers: new Map()
+};
+let externalMarketCardsCache = { key: "", cards: [] };
+
 function updateHeavyContent(message, callback, title = "Atualizando") {
   clearTimeout(scheduledContentLoading);
   scheduledContentLoading = null;
@@ -495,6 +502,33 @@ function marketViewNeedsHeavyRender(view = state?.marketPlayerSubTab || "listed"
 function updateMarketContent(message = "Atualizando mercado...") {
   if (marketViewNeedsHeavyRender()) updateHeavyContent(message, renderMarket);
   else renderMarket();
+}
+
+function marketSectionNeedsHeavyRender(section = state?.marketSubTab || "players") {
+  if (!state) return false;
+  if (section === "players") return marketViewNeedsHeavyRender();
+  if (section === "offers") return (state.offers || []).length > 0;
+  if (section === "history") return (state.transferHistory || []).length > 0;
+  return false;
+}
+
+function renderActiveMarketSection() {
+  renderMarketSections();
+  const section = state.marketSubTab || "players";
+  if (section === "offers") {
+    renderOffers();
+    return;
+  }
+  if (section === "history") {
+    renderTransferHistory();
+    return;
+  }
+  renderMarket();
+}
+
+function updateMarketSectionContent(message = "Atualizando mercado...") {
+  if (marketSectionNeedsHeavyRender()) updateHeavyContent(message, renderActiveMarketSection);
+  else renderActiveMarketSection();
 }
 
 function safeRender(fallbackMessage = "Nao foi possivel atualizar a tela.") {
@@ -5493,6 +5527,12 @@ function activeMarket() {
   return marketFilterList(state.market, { query, pos, mode, club });
 }
 
+function limitedCacheSet(cache, key, value, limit = 24) {
+  if (cache.has(key)) cache.delete(key);
+  cache.set(key, value);
+  while (cache.size > limit) cache.delete(cache.keys().next().value);
+}
+
 function marketFilterList(list, { query = "", pos = "all", mode = "all", club = getUserClub() } = {}) {
   const normalizedQuery = String(query || "").toLowerCase().trim();
   return list.filter((item) => {
@@ -5509,7 +5549,25 @@ function marketFilterList(list, { query = "", pos = "all", mode = "all", club = 
   });
 }
 
+function externalMarketCardsKey() {
+  const rosterShape = state.clubs
+    .map((club) => `${club.id}:${club.squad.length}:${club.squad.filter((player) => player.pendingTransfer || player.loan).length}`)
+    .join("|");
+  const marketShape = (state.market || [])
+    .map((item) => `${item.playerId}:${item.clubId}:${item.listStatus}:${Math.round(item.askingPrice || 0)}`)
+    .join("|");
+  return [
+    state.userClubId,
+    state.day,
+    rosterShape,
+    (state.freeAgents || []).length,
+    marketShape
+  ].join("::");
+}
+
 function allExternalMarketCards() {
+  const cacheKey = externalMarketCardsKey();
+  if (externalMarketCardsCache.key === cacheKey) return externalMarketCardsCache.cards;
   const userClub = getUserClub();
   const clubCards = state.clubs
     .filter((club) => club.id !== userClub.id)
@@ -5518,12 +5576,14 @@ function allExternalMarketCards() {
       .map((player) => marketCard(player, club)));
   const free = (state.freeAgents || []).map((player) => freeAgentCard(player));
   const seen = new Set();
-  return [...clubCards, ...free].filter((item) => {
+  const cards = [...clubCards, ...free].filter((item) => {
     const key = `${item.playerId}-${item.clubId}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
+  externalMarketCardsCache = { key: cacheKey, cards };
+  return cards;
 }
 
 function advancedMarketResults() {
@@ -5790,10 +5850,7 @@ function render() {
   if (activeTab === "training") renderTraining();
   if (activeTab === "club") renderClubDevelopment();
   if (activeTab === "market") {
-    renderMarket();
-    renderOffers();
-    renderTransferHistory();
-    renderMarketSections();
+    renderActiveMarketSection();
   }
   if (activeTab === "calendar") renderCalendar();
   if (activeTab === "league") renderLeague();
@@ -6715,6 +6772,41 @@ function interestButton(playerId) {
   return `<button class="${active ? "secondary-action" : "secondary-action"} small-action" data-toggle-interest="${playerId}">${active ? "Remover interesse" : "Adicionar interesse"}</button>`;
 }
 
+function marketRenderKey() {
+  const view = state.marketPlayerSubTab || "listed";
+  const quickFilters = [
+    document.querySelector("#marketSearch")?.value || "",
+    document.querySelector("#positionFilter")?.value || "all",
+    document.querySelector("#affordFilter")?.value || "all"
+  ].join("|");
+  const advancedFilters = [
+    document.querySelector("#marketAdvancedName")?.value || "",
+    document.querySelector("#marketSearchPosition")?.value || "all",
+    document.querySelector("#marketMaxValue")?.value || "",
+    document.querySelector("#marketMinRating")?.value || "",
+    document.querySelector("#marketMaxRating")?.value || "",
+    document.querySelector("#marketSearchAge")?.value || "all"
+  ].join("|");
+  const listedShape = (state.market || []).map((item) => `${item.playerId}:${item.clubId}:${item.listStatus}:${Math.round(item.askingPrice || 0)}`).join("|");
+  const scoutShape = [
+    Object.entries(state.scouting || {}).map(([id, item]) => `${id}:${item?.level || item}`).join("|"),
+    (state.scoutingJobs || []).map((job) => `${job.playerId}:${job.completeDay}:${job.targetLevel}`).join("|")
+  ].join("::");
+  const externalShape = view === "listed" ? "" : externalMarketCardsKey();
+  return [
+    view,
+    state.day,
+    state.userClubId,
+    state.marketSearchPerformed ? 1 : 0,
+    quickFilters,
+    advancedFilters,
+    listedShape,
+    (state.marketInterestList || []).join("|"),
+    scoutShape,
+    externalShape
+  ].join("||");
+}
+
 function renderMarket() {
   const view = state.marketPlayerSubTab || "listed";
   document.querySelectorAll("[data-market-player-section]").forEach((button) => {
@@ -6722,13 +6814,20 @@ function renderMarket() {
   });
   document.querySelector("#marketQuickFilters")?.classList.toggle("hidden", view === "search");
   document.querySelector("#marketAdvancedSearch")?.classList.toggle("hidden", view !== "search");
+  const cacheKey = marketRenderKey();
+  const cached = contentRenderCache.market.get(cacheKey);
+  if (cached) {
+    document.querySelector("#marketHint").textContent = cached.hint;
+    document.querySelector("#marketList").innerHTML = cached.html;
+    return;
+  }
   const list = marketPlayersForView();
   const hint = view === "listed" ? "jogadores listados"
     : view === "scouted" ? "observados"
       : view === "interest" ? "lista de interesse"
         : state.marketSearchPerformed ? "resultado da pesquisa" : "pesquisa pronta";
-  document.querySelector("#marketHint").textContent = view === "search" && !state.marketSearchPerformed ? "defina os filtros e pesquise" : `${list.length} ${hint}`;
-  document.querySelector("#marketList").innerHTML = list.length ? list.map((player) => {
+  const hintText = view === "search" && !state.marketSearchPerformed ? "defina os filtros e pesquise" : `${list.length} ${hint}`;
+  const html = list.length ? list.map((player) => {
     const level = scoutLevel(player.playerId, player.clubId);
     return `
       <div class="market-row">
@@ -6751,6 +6850,9 @@ function renderMarket() {
       </div>
     `;
   }).join("") : `<div class="event">${view === "search" && !state.marketSearchPerformed ? "Defina os criterios e clique em Pesquisar para listar jogadores." : "Nenhum jogador encontrado para esses filtros."}</div>`;
+  document.querySelector("#marketHint").textContent = hintText;
+  document.querySelector("#marketList").innerHTML = html;
+  limitedCacheSet(contentRenderCache.market, cacheKey, { hint: hintText, html });
 }
 
 function renderMarketSections() {
@@ -6769,9 +6871,28 @@ function renderMarketSections() {
 }
 
 function renderOffers() {
+  const countTarget = document.querySelector("#offerCount");
+  const listTarget = document.querySelector("#incomingOffers");
+  if (!countTarget || !listTarget) return;
+  const offers = state.offers || [];
+  if (!offers.length) {
+    countTarget.textContent = "0 abertas";
+    listTarget.innerHTML = `<div class="event">Nenhuma proposta aberta agora.</div>`;
+    return;
+  }
+  const cacheKey = [
+    state.day,
+    offers.map((offer) => `${offer.id}:${offer.status}:${offer.fee}:${offer.answerDay || ""}:${offer.createdDay || offer.day || ""}`).join("|")
+  ].join("::");
+  const cached = contentRenderCache.offers.get(cacheKey);
+  if (cached) {
+    countTarget.textContent = cached.count;
+    listTarget.innerHTML = cached.html;
+    return;
+  }
   const club = getUserClub();
-  document.querySelector("#offerCount").textContent = `${state.offers.length} abertas`;
-  document.querySelector("#incomingOffers").innerHTML = state.offers.length ? state.offers.map((offer) => {
+  const countText = `${offers.length} abertas`;
+  const html = offers.map((offer) => {
     const player = playerById(club, offer.playerId);
     if (!player) return "";
     const waiting = offer.status === "counter_wait";
@@ -6793,7 +6914,10 @@ function renderOffers() {
         </div>
       </div>
     `;
-  }).join("") : `<div class="event">Nenhuma proposta aberta agora.</div>`;
+  }).join("");
+  countTarget.textContent = countText;
+  listTarget.innerHTML = html;
+  limitedCacheSet(contentRenderCache.offers, cacheKey, { count: countText, html });
 }
 
 function activeTransfers() {
@@ -6882,9 +7006,30 @@ function renderCalendar() {
 }
 
 function renderTransferHistory() {
+  const countTarget = document.querySelector("#transferCount");
+  const listTarget = document.querySelector("#transferHistory");
+  if (!countTarget || !listTarget) return;
+  if (!(state.transferHistory || []).length) {
+    countTarget.textContent = "0 registros";
+    listTarget.innerHTML = `<div class="event">Nenhuma transferencia registrada ainda.</div>`;
+    return;
+  }
+  const cacheKey = [
+    state.day,
+    document.querySelector("#transferSearch")?.value || "",
+    document.querySelector("#transferClubFilter")?.value || "all",
+    document.querySelector("#transferMinFilter")?.value || "",
+    state.transferHistory.map((deal) => `${deal.id || deal.playerName}:${deal.fromId}:${deal.toId}:${deal.fee}:${deal.day}`).join("|")
+  ].join("::");
+  const cached = contentRenderCache.transfers.get(cacheKey);
+  if (cached) {
+    countTarget.textContent = cached.count;
+    listTarget.innerHTML = cached.html;
+    return;
+  }
   const list = activeTransfers();
-  document.querySelector("#transferCount").textContent = `${list.length} registros`;
-  document.querySelector("#transferHistory").innerHTML = list.length ? list.map((deal) => `
+  const countText = `${list.length} registros`;
+  const html = list.length ? list.map((deal) => `
     <div class="market-row transfer-row">
       <div>
         <span class="market-name">${deal.playerName}</span>
@@ -6894,6 +7039,9 @@ function renderTransferHistory() {
       <strong class="rating">${money(deal.fee)}</strong>
     </div>
   `).join("") : `<div class="event">Nenhuma transferencia registrada ainda.</div>`;
+  countTarget.textContent = countText;
+  listTarget.innerHTML = html;
+  limitedCacheSet(contentRenderCache.transfers, cacheKey, { count: countText, html });
 }
 
 function renderLeague() {
@@ -7439,7 +7587,7 @@ function wireEvents() {
         document.querySelector(`#${tab.dataset.tab}Tab`).classList.add("active");
         render();
       };
-      if (["market", "league", "calendar", "club", "squad", "training", "lineup"].includes(tab.dataset.tab) && (tab.dataset.tab !== "market" || marketViewNeedsHeavyRender())) runWithLoading(tabLoadingMessage(tab.dataset.tab), openTab, "Atualizando");
+      if (["market", "league", "calendar", "club", "squad", "training", "lineup"].includes(tab.dataset.tab) && (tab.dataset.tab !== "market" || marketSectionNeedsHeavyRender())) runWithLoading(tabLoadingMessage(tab.dataset.tab), openTab, "Atualizando");
       else openTab();
       return;
     }
@@ -7466,10 +7614,7 @@ function wireEvents() {
     if (event.target.matches("[data-market-section]")) {
       state.marketSubTab = event.target.dataset.marketSection;
       saveState();
-      updateHeavyContent("Atualizando mercado e negociacoes...", () => {
-        renderMarketSections();
-        renderMarket();
-      });
+      updateMarketSectionContent("Atualizando mercado e negociacoes...");
     }
     if (event.target.matches("[data-market-player-section]")) {
       state.marketPlayerSubTab = event.target.dataset.marketPlayerSection;
