@@ -460,6 +460,14 @@ function scheduleHeavyContentUpdate(message, callback, delay = 220) {
   }, delay);
 }
 
+function scheduleMarketContentUpdate(message, delay = 220) {
+  clearTimeout(scheduledContentLoading);
+  scheduledContentLoading = setTimeout(() => {
+    scheduledContentLoading = null;
+    updateMarketContent(message);
+  }, delay);
+}
+
 function tabLoadingMessage(tabName) {
   const messages = {
     market: "Atualizando mercado, observacoes e propostas...",
@@ -471,6 +479,22 @@ function tabLoadingMessage(tabName) {
     lineup: "Atualizando escalacao e encaixe tatico..."
   };
   return messages[tabName] || "Atualizando dados da tela...";
+}
+
+function marketViewNeedsHeavyRender(view = state?.marketPlayerSubTab || "listed") {
+  if (!state) return false;
+  if (view === "interest") return (state.marketInterestList || []).length > 0;
+  if (view === "search") return Boolean(state.marketSearchPerformed);
+  if (view === "scouted") {
+    const hasScoutData = Object.values(state.scouting || {}).some((item) => Number(item?.level || item || 0) > 0);
+    return hasScoutData || (state.scoutingJobs || []).length > 0;
+  }
+  return true;
+}
+
+function updateMarketContent(message = "Atualizando mercado...") {
+  if (marketViewNeedsHeavyRender()) updateHeavyContent(message, renderMarket);
+  else renderMarket();
 }
 
 function safeRender(fallbackMessage = "Nao foi possivel atualizar a tela.") {
@@ -5529,6 +5553,8 @@ function marketPlayersForView() {
   const view = state.marketPlayerSubTab || "listed";
   if (view === "listed") return activeMarket();
   if (view === "scouted") {
+    const hasScoutData = Object.values(state.scouting || {}).some((item) => Number(item?.level || item || 0) > 0);
+    if (!hasScoutData && !(state.scoutingJobs || []).length) return [];
     const cards = allExternalMarketCards().filter((item) => scoutLevel(item.playerId, item.clubId) > 0 || activeScoutJob(item.playerId));
     return marketFilterList(cards, {
       query: document.querySelector("#marketSearch")?.value || "",
@@ -5538,6 +5564,7 @@ function marketPlayersForView() {
   }
   if (view === "interest") {
     const wanted = new Set(state.marketInterestList || []);
+    if (!wanted.size) return [];
     const cards = allExternalMarketCards().filter((item) => wanted.has(item.playerId));
     return marketFilterList(cards, {
       query: document.querySelector("#marketSearch")?.value || "",
@@ -5746,24 +5773,31 @@ function render() {
   });
 
   renderOptions();
-  renderReport();
-  renderInbox();
-  renderLiveMatch();
-  renderSquad();
+  renderInboxBadge();
   renderLineup();
-  renderLineupEditor();
-  renderMatchLineupEditor();
-  renderTraining();
-  renderClubDevelopment();
-  renderTacticAdvice();
-  renderMarket();
-  renderOffers();
-  renderTransferHistory();
-  renderMarketSections();
-  renderCalendar();
-  renderLeague();
-  renderClubProfile();
   renderNews();
+  if (activeTab === "dashboard") renderReport();
+  if (activeTab === "inbox") renderInbox();
+  if (activeTab === "match") {
+    renderLiveMatch();
+    renderMatchLineupEditor();
+  }
+  if (activeTab === "squad") renderSquad();
+  if (activeTab === "lineup") {
+    renderLineupEditor();
+    renderTacticAdvice();
+  }
+  if (activeTab === "training") renderTraining();
+  if (activeTab === "club") renderClubDevelopment();
+  if (activeTab === "market") {
+    renderMarket();
+    renderOffers();
+    renderTransferHistory();
+    renderMarketSections();
+  }
+  if (activeTab === "calendar") renderCalendar();
+  if (activeTab === "league") renderLeague();
+  if (activeTab === "clubProfile") renderClubProfile();
   renderNegotiationModal();
   renderAlertModal();
 }
@@ -7405,7 +7439,7 @@ function wireEvents() {
         document.querySelector(`#${tab.dataset.tab}Tab`).classList.add("active");
         render();
       };
-      if (["market", "league", "calendar", "club", "squad", "training", "lineup"].includes(tab.dataset.tab)) runWithLoading(tabLoadingMessage(tab.dataset.tab), openTab, "Atualizando");
+      if (["market", "league", "calendar", "club", "squad", "training", "lineup"].includes(tab.dataset.tab) && (tab.dataset.tab !== "market" || marketViewNeedsHeavyRender())) runWithLoading(tabLoadingMessage(tab.dataset.tab), openTab, "Atualizando");
       else openTab();
       return;
     }
@@ -7440,7 +7474,7 @@ function wireEvents() {
     if (event.target.matches("[data-market-player-section]")) {
       state.marketPlayerSubTab = event.target.dataset.marketPlayerSection;
       saveState();
-      updateHeavyContent("Filtrando jogadores do mercado...", renderMarket);
+      updateMarketContent("Filtrando jogadores do mercado...");
     }
     if (event.target.matches("[data-toggle-interest]")) {
       state.marketInterestList = Array.isArray(state.marketInterestList) ? state.marketInterestList : [];
@@ -7449,7 +7483,7 @@ function wireEvents() {
         ? state.marketInterestList.filter((id) => id !== playerId)
         : [...state.marketInterestList, playerId];
       saveState();
-      updateHeavyContent("Atualizando lista de interesse...", renderMarket);
+      updateMarketContent("Atualizando lista de interesse...");
     }
     if (event.target.matches("#advancedMarketSearchBtn")) {
       state.marketSearchPerformed = true;
@@ -7671,11 +7705,11 @@ function wireEvents() {
       render();
     }
 
-    if (event.target.matches("#positionFilter") || event.target.matches("#affordFilter")) updateHeavyContent("Filtrando jogadores do mercado...", renderMarket);
+    if (event.target.matches("#positionFilter") || event.target.matches("#affordFilter")) updateMarketContent("Filtrando jogadores do mercado...");
     if (event.target.matches("#marketSearchPosition") || event.target.matches("#marketSearchAge")) {
       state.marketSearchPerformed = false;
       saveState();
-      updateHeavyContent("Atualizando criterios de pesquisa...", renderMarket);
+      updateMarketContent("Atualizando criterios de pesquisa...");
     }
     if (event.target.matches("#squadSort") || event.target.matches("#squadListFilter") || event.target.matches("#squadPositionFilter")) updateHeavyContent("Reorganizando lista de jogadores...", renderSquad);
     if (event.target.matches("#trainingSort") || event.target.matches("#trainingPositionFilter")) updateHeavyContent("Atualizando jogadores em treino...", renderTraining);
@@ -7707,10 +7741,10 @@ function wireEvents() {
   });
 
   document.addEventListener("input", (event) => {
-    if (event.target.matches("#marketSearch")) scheduleHeavyContentUpdate("Filtrando jogadores do mercado...", renderMarket);
+    if (event.target.matches("#marketSearch")) scheduleMarketContentUpdate("Filtrando jogadores do mercado...");
     if (event.target.matches("#marketAdvancedName") || event.target.matches("#marketMaxValue") || event.target.matches("#marketMinRating") || event.target.matches("#marketMaxRating")) {
       state.marketSearchPerformed = false;
-      scheduleHeavyContentUpdate("Atualizando criterios de pesquisa...", renderMarket);
+      scheduleMarketContentUpdate("Atualizando criterios de pesquisa...");
     }
     if (event.target.matches("#squadSearch")) scheduleHeavyContentUpdate("Buscando jogadores no elenco...", renderSquad);
     if (event.target.matches("#trainingSearch")) scheduleHeavyContentUpdate("Buscando jogadores em treino...", renderTraining);
