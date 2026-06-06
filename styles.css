@@ -897,6 +897,18 @@ h2 {
   grid-template-columns: minmax(220px, 1fr) 170px 190px;
 }
 
+.training-filters {
+  grid-template-columns: minmax(220px, 1fr) 180px 220px;
+}
+
+.search-filter-grid {
+  grid-template-columns: minmax(220px, 1.2fr) 150px 150px 130px 130px 150px auto;
+}
+
+.compact-subtabs {
+  margin-bottom: 12px;
+}
+
 label {
   display: grid;
   gap: 7px;
@@ -1129,7 +1141,7 @@ input {
 
 .training-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) repeat(3, minmax(150px, 190px));
+  grid-template-columns: minmax(320px, 1fr) repeat(3, minmax(150px, 190px));
   gap: 10px;
   align-items: center;
   padding: 12px;
@@ -1142,6 +1154,10 @@ input {
   color: var(--muted);
   font-size: 0.82rem;
   line-height: 1.35;
+}
+
+.training-attributes {
+  max-width: 560px;
 }
 
 .facility-grid {

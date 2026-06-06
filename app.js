@@ -1908,6 +1908,9 @@ function createNewGame(clubId, mode = selectedGameMode || "free") {
     leagueView: "division1",
     calendarMonth: 0,
     marketSubTab: "players",
+    marketPlayerSubTab: "listed",
+    marketInterestList: [],
+    marketSearchPerformed: false,
     squadSubTab: "pro",
     negotiation: null,
     selectedClubId: clubId,
@@ -1993,6 +1996,9 @@ function migrateState(saved) {
   saved.leagueView = saved.leagueView || "division1";
   saved.calendarMonth = Number.isInteger(saved.calendarMonth) ? saved.calendarMonth : monthIndexFromDay(saved.day || 1);
   saved.marketSubTab = saved.marketSubTab || "players";
+  saved.marketPlayerSubTab = saved.marketPlayerSubTab || "listed";
+  saved.marketInterestList = Array.isArray(saved.marketInterestList) ? saved.marketInterestList : [];
+  saved.marketSearchPerformed = Boolean(saved.marketSearchPerformed);
   saved.squadSubTab = saved.squadSubTab || "pro";
   saved.negotiation = saved.negotiation || null;
   saved.selectedClubId = saved.selectedClubId || saved.userClubId;
@@ -5430,8 +5436,13 @@ function activeMarket() {
   const pos = document.querySelector("#positionFilter")?.value || "all";
   const mode = document.querySelector("#affordFilter")?.value || "all";
   const club = getUserClub();
-  return state.market.filter((item) => {
-    const textMatch = !query || `${item.name} ${item.sourceClub}`.toLowerCase().includes(query);
+  return marketFilterList(state.market, { query, pos, mode, club });
+}
+
+function marketFilterList(list, { query = "", pos = "all", mode = "all", club = getUserClub() } = {}) {
+  const normalizedQuery = String(query || "").toLowerCase().trim();
+  return list.filter((item) => {
+    const textMatch = !normalizedQuery || `${item.name} ${item.sourceClub} ${nationalityText(item)}`.toLowerCase().includes(normalizedQuery);
     const posMatch = pos === "all" || positionFit(item, pos) >= 0.7;
     const modeMatch =
       mode === "all" ||
@@ -5442,6 +5453,69 @@ function activeMarket() {
       (mode === "young" && item.age <= 23 && item.potential - item.rating >= 6);
     return textMatch && posMatch && modeMatch;
   });
+}
+
+function allExternalMarketCards() {
+  const userClub = getUserClub();
+  const clubCards = state.clubs
+    .filter((club) => club.id !== userClub.id)
+    .flatMap((club) => club.squad
+      .filter((player) => !player.loan && !player.pendingTransfer)
+      .map((player) => marketCard(player, club)));
+  const free = (state.freeAgents || []).map((player) => freeAgentCard(player));
+  const seen = new Set();
+  return [...clubCards, ...free].filter((item) => {
+    const key = `${item.playerId}-${item.clubId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function advancedMarketResults() {
+  if (!state.marketSearchPerformed) return [];
+  const query = document.querySelector("#marketAdvancedName")?.value.toLowerCase().trim() || "";
+  const pos = document.querySelector("#marketSearchPosition")?.value || "all";
+  const maxValue = parseMoneyInput(document.querySelector("#marketMaxValue")?.value || "");
+  const minRating = Number(document.querySelector("#marketMinRating")?.value || 0);
+  const maxRating = Number(document.querySelector("#marketMaxRating")?.value || 0);
+  const ageMode = document.querySelector("#marketSearchAge")?.value || "all";
+  return allExternalMarketCards().filter((item) => {
+    const textMatch = !query || `${item.name} ${item.sourceClub} ${nationalityText(item)}`.toLowerCase().includes(query);
+    const posMatch = pos === "all" || positionFit(item, pos) >= 0.7;
+    const valueMatch = !maxValue || item.value <= maxValue || item.askingPrice <= maxValue;
+    const minMatch = !minRating || item.rating >= minRating;
+    const maxMatch = !maxRating || item.rating <= maxRating;
+    const ageMatch = ageMode === "all"
+      || (ageMode === "u21" && item.age <= 21)
+      || (ageMode === "u24" && item.age <= 24)
+      || (ageMode === "prime" && item.age >= 24 && item.age <= 29)
+      || (ageMode === "experienced" && item.age >= 30);
+    return textMatch && posMatch && valueMatch && minMatch && maxMatch && ageMatch;
+  }).sort((a, b) => b.rating - a.rating);
+}
+
+function marketPlayersForView() {
+  const view = state.marketPlayerSubTab || "listed";
+  if (view === "listed") return activeMarket();
+  if (view === "scouted") {
+    const cards = allExternalMarketCards().filter((item) => scoutLevel(item.playerId, item.clubId) > 0 || activeScoutJob(item.playerId));
+    return marketFilterList(cards, {
+      query: document.querySelector("#marketSearch")?.value || "",
+      pos: document.querySelector("#positionFilter")?.value || "all",
+      mode: document.querySelector("#affordFilter")?.value || "all"
+    });
+  }
+  if (view === "interest") {
+    const wanted = new Set(state.marketInterestList || []);
+    const cards = allExternalMarketCards().filter((item) => wanted.has(item.playerId));
+    return marketFilterList(cards, {
+      query: document.querySelector("#marketSearch")?.value || "",
+      pos: document.querySelector("#positionFilter")?.value || "all",
+      mode: document.querySelector("#affordFilter")?.value || "all"
+    });
+  }
+  return advancedMarketResults();
 }
 
 function scoutLevel(playerId, clubId = "") {
@@ -5700,6 +5774,15 @@ function renderOptions() {
   if (speedSelect) speedSelect.value = String(state.liveMatch?.speed || state.matchSpeed || 1500);
   const positionFilter = document.querySelector("#positionFilter");
   optionList(positionFilter, ["all", ...fieldPositionOrder], positionFilter?.value || "all");
+  optionList(document.querySelector("#marketSearchPosition"), ["all", ...fieldPositionOrder], document.querySelector("#marketSearchPosition")?.value || "all");
+  optionList(document.querySelector("#squadPositionFilter"), ["all", ...fieldPositionOrder], document.querySelector("#squadPositionFilter")?.value || "all");
+  optionList(document.querySelector("#trainingPositionFilter"), ["all", ...fieldPositionOrder], document.querySelector("#trainingPositionFilter")?.value || "all");
+  ["#positionFilter", "#marketSearchPosition", "#squadPositionFilter", "#trainingPositionFilter"].forEach((selector) => {
+    document.querySelector(selector)?.querySelectorAll("option").forEach((option) => {
+      if (option.value === "all") option.textContent = "Todas posicoes";
+      else option.textContent = option.value;
+    });
+  });
   optionList(document.querySelector("#transferClubFilter"), ["all", ...state.clubs.map((club) => club.id)], transferClubValue);
   document.querySelector("#transferClubFilter")?.querySelectorAll("option").forEach((option) => {
     if (option.value === "all") option.textContent = "Todos os clubes";
@@ -6115,11 +6198,13 @@ function squadPlayerRow(player, club, lineupIds, context = {}) {
 function sortedSquad(club) {
   const query = document.querySelector("#squadSearch")?.value.toLowerCase().trim() || "";
   const listFilter = document.querySelector("#squadListFilter")?.value || "all";
+  const posFilter = document.querySelector("#squadPositionFilter")?.value || "all";
   const sort = document.querySelector("#squadSort")?.value || "rating-desc";
   const filtered = club.squad.filter((player) => {
     const textMatch = !query || player.name.toLowerCase().includes(query);
     const listMatch = listFilter === "all" || (listFilter === "listed" && ["transfer", "loan"].includes(player.listStatus)) || player.listStatus === listFilter;
-    return textMatch && listMatch;
+    const posMatch = posFilter === "all" || positionFit(player, posFilter) >= 0.7;
+    return textMatch && listMatch && posMatch;
   });
   const avg = (player) => player.stats?.apps ? player.stats.ratingSum / player.stats.apps : 0;
   const sorters = {
@@ -6128,6 +6213,7 @@ function sortedSquad(club) {
     "value-desc": (a, b) => calculatePlayerValue(b, club.reputation) - calculatePlayerValue(a, club.reputation),
     "value-asc": (a, b) => calculatePlayerValue(a, club.reputation) - calculatePlayerValue(b, club.reputation),
     "position-asc": (a, b) => positionRank(a.position) - positionRank(b.position) || b.rating - a.rating,
+    "position-desc": (a, b) => positionRank(b.position) - positionRank(a.position) || b.rating - a.rating,
     "apps-desc": (a, b) => (b.stats?.apps || 0) - (a.stats?.apps || 0),
     "avg-desc": (a, b) => avg(b) - avg(a),
     "condition-asc": (a, b) => fitnessQuotient(a) - fitnessQuotient(b)
@@ -6137,14 +6223,20 @@ function sortedSquad(club) {
 
 function sortedYouthSquad(club) {
   const query = document.querySelector("#squadSearch")?.value.toLowerCase().trim() || "";
+  const posFilter = document.querySelector("#squadPositionFilter")?.value || "all";
   const sort = document.querySelector("#squadSort")?.value || "rating-desc";
-  const filtered = (club.youthAcademy || []).filter((player) => !query || player.name.toLowerCase().includes(query));
+  const filtered = (club.youthAcademy || []).filter((player) => {
+    const textMatch = !query || player.name.toLowerCase().includes(query);
+    const posMatch = posFilter === "all" || positionFit(player, posFilter) >= 0.7;
+    return textMatch && posMatch;
+  });
   const sorters = {
     "rating-desc": (a, b) => b.rating - a.rating,
     "rating-asc": (a, b) => a.rating - b.rating,
     "value-desc": (a, b) => calculatePlayerValue(b, club.reputation) - calculatePlayerValue(a, club.reputation),
     "value-asc": (a, b) => calculatePlayerValue(a, club.reputation) - calculatePlayerValue(b, club.reputation),
     "position-asc": (a, b) => positionRank(a.position) - positionRank(b.position) || b.potential - a.potential,
+    "position-desc": (a, b) => positionRank(b.position) - positionRank(a.position) || b.potential - a.potential,
     "apps-desc": (a, b) => (b.stats?.apps || 0) - (a.stats?.apps || 0),
     "avg-desc": (a, b) => b.potential - a.potential,
     "condition-asc": (a, b) => fitnessQuotient(a) - fitnessQuotient(b)
@@ -6179,6 +6271,7 @@ function renderYouthIntakeList(club) {
   const intake = club.youthIntake;
   if (!intake) return `<div class="event">A peneira de meio de temporada ainda nao abriu. Proxima em ${dateShort(youthIntakeDay)}.</div>`;
   const query = document.querySelector("#squadSearch")?.value.toLowerCase().trim() || "";
+  const posFilter = document.querySelector("#squadPositionFilter")?.value || "all";
   const sort = document.querySelector("#squadSort")?.value || "rating-desc";
   const sorters = {
     "rating-desc": (a, b) => b.rating - a.rating,
@@ -6186,12 +6279,13 @@ function renderYouthIntakeList(club) {
     "value-desc": (a, b) => b.potential - a.potential || b.rating - a.rating,
     "value-asc": (a, b) => a.potential - b.potential || a.rating - b.rating,
     "position-asc": (a, b) => positionRank(a.position) - positionRank(b.position) || b.potential - a.potential,
+    "position-desc": (a, b) => positionRank(b.position) - positionRank(a.position) || b.potential - a.potential,
     "apps-desc": (a, b) => b.age - a.age,
     "avg-desc": (a, b) => b.potential - a.potential,
     "condition-asc": (a, b) => a.age - b.age
   };
   const candidates = [...intake.candidates]
-    .filter((player) => !query || player.name.toLowerCase().includes(query))
+    .filter((player) => (!query || player.name.toLowerCase().includes(query)) && (posFilter === "all" || positionFit(player, posFilter) >= 0.7))
     .sort(sorters[sort] || sorters["rating-desc"]);
   return `
     <div class="event">Voce pode escolher ate ${intake.maxPicks} jogador${intake.maxPicks > 1 ? "es" : ""}. A base tem ${club.youthAcademy.length}/${youthAcademyLimit} atletas.</div>
@@ -6223,8 +6317,17 @@ function attribute(label, value) {
   return `<div class="attribute"><span>${label}</span><strong>${display}</strong></div>`;
 }
 
+function compactPlayerAttributes(player) {
+  const attrs = player.position === "GK"
+    ? [["REF", "reflexes"], ["MAN", "handling"], ["POS", "positioningGk"], ["1x1", "oneOnOne"], ["DIS", "distribution"], ["AER", "aerial"]]
+    : [["VEL", "pace"], ["PAS", "passing"], ["DRI", "dribbling"], ["FIN", "finishing"], ["DES", "tackling"], ["VIS", "vision"]];
+  return `<div class="player-attributes training-attributes">${attrs.map(([label, attr]) => attribute(label, player[attr])).join("")}</div>`;
+}
+
 function renderLineup() {
-  document.querySelector("#lineupList").innerHTML = currentLineup().map((player) => `
+  const target = document.querySelector("#lineupList");
+  if (!target) return;
+  target.innerHTML = currentLineup().map((player) => `
     <div class="lineup-item">
       <span class="position">${player.slot}</span>
       <span>${player.name}</span>
@@ -6236,8 +6339,26 @@ function renderLineup() {
 function renderTraining() {
   const club = getUserClub();
   const attrs = ["automatic", ...trainableAttrs];
-  document.querySelector("#trainingList").innerHTML = [...club.squad]
-    .sort((a, b) => b.potential - a.potential || b.rating - a.rating)
+  const query = document.querySelector("#trainingSearch")?.value.toLowerCase().trim() || "";
+  const posFilter = document.querySelector("#trainingPositionFilter")?.value || "all";
+  const sort = document.querySelector("#trainingSort")?.value || "potential-desc";
+  const sorters = {
+    "potential-desc": (a, b) => b.potential - a.potential || b.rating - a.rating,
+    "rating-desc": (a, b) => b.rating - a.rating,
+    "rating-asc": (a, b) => a.rating - b.rating,
+    "position-asc": (a, b) => positionRank(a.position) - positionRank(b.position) || b.potential - a.potential,
+    "position-desc": (a, b) => positionRank(b.position) - positionRank(a.position) || b.potential - a.potential,
+    "age-asc": (a, b) => a.age - b.age || b.potential - a.potential,
+    "condition-asc": (a, b) => fitnessQuotient(a) - fitnessQuotient(b)
+  };
+  const players = [...club.squad]
+    .filter((player) => {
+      const textMatch = !query || player.name.toLowerCase().includes(query);
+      const posMatch = posFilter === "all" || positionFit(player, posFilter) >= 0.7;
+      return textMatch && posMatch;
+    })
+    .sort(sorters[sort] || sorters["potential-desc"]);
+  document.querySelector("#trainingList").innerHTML = players.length ? players
     .map((player) => {
       const targetPosition = player.training?.position || player.position;
       const targetRole = player.training?.role || defaultRoleForSlot(targetPosition);
@@ -6250,6 +6371,7 @@ function renderTraining() {
           <div>
             <span class="player-name">${player.name}</span>
             <span class="player-meta">${positionText(player)} - ${nationalityText(player)} - G${player.rating.toFixed(0)} - pot ${player.potential.toFixed(0)} - ${availabilityText(player)} - exp ${targetPosition}: ${fmt(posExp)}% - funcao: ${fmt(rExp)}%</span>
+            ${compactPlayerAttributes(player)}
             <div class="training-note">${role?.desc || "Escolha uma funcao para orientar a evolucao."}</div>
           </div>
           <label>
@@ -6272,7 +6394,7 @@ function renderTraining() {
           </label>
         </div>
       `;
-    }).join("");
+    }).join("") : `<div class="event">Nenhum jogador encontrado para esses filtros.</div>`;
 }
 
 function renderClubDevelopment() {
@@ -6524,10 +6646,24 @@ function renderTacticAdvice() {
   `).join("");
 }
 
+function interestButton(playerId) {
+  const active = (state.marketInterestList || []).includes(playerId);
+  return `<button class="${active ? "secondary-action" : "secondary-action"} small-action" data-toggle-interest="${playerId}">${active ? "Remover interesse" : "Adicionar interesse"}</button>`;
+}
+
 function renderMarket() {
-  const club = getUserClub();
-  const list = activeMarket();
-  document.querySelector("#marketHint").textContent = `${list.length} opcoes`;
+  const view = state.marketPlayerSubTab || "listed";
+  document.querySelectorAll("[data-market-player-section]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.marketPlayerSection === view);
+  });
+  document.querySelector("#marketQuickFilters")?.classList.toggle("hidden", view === "search");
+  document.querySelector("#marketAdvancedSearch")?.classList.toggle("hidden", view !== "search");
+  const list = marketPlayersForView();
+  const hint = view === "listed" ? "jogadores listados"
+    : view === "scouted" ? "observados"
+      : view === "interest" ? "lista de interesse"
+        : state.marketSearchPerformed ? "resultado da pesquisa" : "pesquisa pronta";
+  document.querySelector("#marketHint").textContent = view === "search" && !state.marketSearchPerformed ? "defina os filtros e pesquise" : `${list.length} ${hint}`;
   document.querySelector("#marketList").innerHTML = list.length ? list.map((player) => {
     const level = scoutLevel(player.playerId, player.clubId);
     return `
@@ -6546,10 +6682,11 @@ function renderMarket() {
               : `<button class="buy-button" data-open-proposal="${player.playerId}" data-proposal-type="${player.listStatus === "loan" ? "loan" : "transfer"}">Fazer proposta</button>
                ${releaseClauseButton(player.playerId, player.releaseClause, true)}`}
           ${scoutButton(player.playerId, level)}
+          ${interestButton(player.playerId)}
         </div>
       </div>
     `;
-  }).join("") : `<div class="event">Nenhum jogador listado encontrado para esses filtros. Para tentar jogadores fora da vitrine, abra o perfil do clube pela tabela.</div>`;
+  }).join("") : `<div class="event">${view === "search" && !state.marketSearchPerformed ? "Defina os criterios e clique em Pesquisar para listar jogadores." : "Nenhum jogador encontrado para esses filtros."}</div>`;
 }
 
 function renderMarketSections() {
@@ -7013,6 +7150,7 @@ function clubPlayerRow(player, club) {
                  ${releaseClauseButton(player.id, player.releaseClause, true)}`
             : ""}
           ${scoutButton(player.id, level)}
+          ${interestButton(player.id)}
         </div>
       `}
     </div>
@@ -7265,6 +7403,26 @@ function wireEvents() {
       state.marketSubTab = event.target.dataset.marketSection;
       saveState();
       renderMarketSections();
+      renderMarket();
+    }
+    if (event.target.matches("[data-market-player-section]")) {
+      state.marketPlayerSubTab = event.target.dataset.marketPlayerSection;
+      saveState();
+      renderMarket();
+    }
+    if (event.target.matches("[data-toggle-interest]")) {
+      state.marketInterestList = Array.isArray(state.marketInterestList) ? state.marketInterestList : [];
+      const playerId = event.target.dataset.toggleInterest;
+      state.marketInterestList = state.marketInterestList.includes(playerId)
+        ? state.marketInterestList.filter((id) => id !== playerId)
+        : [...state.marketInterestList, playerId];
+      saveState();
+      renderMarket();
+    }
+    if (event.target.matches("#advancedMarketSearchBtn")) {
+      state.marketSearchPerformed = true;
+      saveState();
+      renderMarket();
     }
     if (event.target.matches("[data-squad-section]")) {
       state.squadSubTab = event.target.dataset.squadSection;
@@ -7476,7 +7634,13 @@ function wireEvents() {
     }
 
     if (event.target.matches("#positionFilter") || event.target.matches("#affordFilter")) renderMarket();
-    if (event.target.matches("#squadSort") || event.target.matches("#squadListFilter")) renderSquad();
+    if (event.target.matches("#marketSearchPosition") || event.target.matches("#marketSearchAge")) {
+      state.marketSearchPerformed = false;
+      saveState();
+      renderMarket();
+    }
+    if (event.target.matches("#squadSort") || event.target.matches("#squadListFilter") || event.target.matches("#squadPositionFilter")) renderSquad();
+    if (event.target.matches("#trainingSort") || event.target.matches("#trainingPositionFilter")) renderTraining();
     if (event.target.matches("#clubSquadSort") || event.target.matches("#clubSquadSearch")) renderClubProfile();
     if (event.target.matches("#transferClubFilter")) renderTransferHistory();
     if (event.target.matches("#matchSpeedSelect")) setMatchSpeed(event.target.value);
@@ -7506,7 +7670,12 @@ function wireEvents() {
 
   document.addEventListener("input", (event) => {
     if (event.target.matches("#marketSearch")) renderMarket();
+    if (event.target.matches("#marketAdvancedName") || event.target.matches("#marketMaxValue") || event.target.matches("#marketMinRating") || event.target.matches("#marketMaxRating")) {
+      state.marketSearchPerformed = false;
+      renderMarket();
+    }
     if (event.target.matches("#squadSearch")) renderSquad();
+    if (event.target.matches("#trainingSearch")) renderTraining();
     if (event.target.matches("#transferSearch") || event.target.matches("#transferMinFilter")) renderTransferHistory();
   });
 

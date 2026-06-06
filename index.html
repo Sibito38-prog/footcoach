@@ -197,10 +197,14 @@
                   <option value="rating-asc">Geral: menor primeiro</option>
                   <option value="value-desc">Valor: maior primeiro</option>
                   <option value="value-asc">Valor: menor primeiro</option>
-                  <option value="position-asc">Posicao</option>
+                  <option value="position-asc">Posicao: goleiro ao ataque</option>
+                  <option value="position-desc">Posicao: ataque ao goleiro</option>
                   <option value="apps-desc">Jogos</option>
                   <option value="avg-desc">Nota media</option>
                   <option value="condition-asc">Fisico: menor primeiro</option>
+                </select>
+                <select id="squadPositionFilter">
+                  <option value="all">Todas posicoes</option>
                 </select>
                 <select id="squadListFilter">
                   <option value="all">Todos</option>
@@ -261,6 +265,21 @@
               <div class="section-heading">
                 <h2>Treino</h2>
                 <span>foco individual</span>
+              </div>
+              <div class="filter-bar training-filters">
+                <input id="trainingSearch" type="search" placeholder="Pesquisar jogador" />
+                <select id="trainingPositionFilter">
+                  <option value="all">Todas posicoes</option>
+                </select>
+                <select id="trainingSort">
+                  <option value="potential-desc">Potencial: maior primeiro</option>
+                  <option value="rating-desc">Geral: maior primeiro</option>
+                  <option value="rating-asc">Geral: menor primeiro</option>
+                  <option value="position-asc">Posicao: goleiro ao ataque</option>
+                  <option value="position-desc">Posicao: ataque ao goleiro</option>
+                  <option value="age-asc">Idade: menor primeiro</option>
+                  <option value="condition-asc">Fisico: menor primeiro</option>
+                </select>
               </div>
               <div id="trainingList" class="training-list"></div>
             </div>
@@ -335,7 +354,13 @@
               </div>
 
               <section id="marketPlayersSection" class="market-section active">
-                <div class="filter-bar">
+                <div class="sub-tabs compact-subtabs">
+                  <button class="sub-tab active" data-market-player-section="listed">Listados</button>
+                  <button class="sub-tab" data-market-player-section="scouted">Observados</button>
+                  <button class="sub-tab" data-market-player-section="interest">Lista de interesse</button>
+                  <button class="sub-tab" data-market-player-section="search">Pesquisa</button>
+                </div>
+                <div id="marketQuickFilters" class="filter-bar">
                   <input id="marketSearch" type="search" placeholder="Pesquisar jogador ou clube" />
                   <select id="positionFilter">
                     <option value="all">Todas posicoes</option>
@@ -348,6 +373,23 @@
                     <option value="starter">Nivel titular</option>
                     <option value="young">Jovens promessas</option>
                   </select>
+                </div>
+                <div id="marketAdvancedSearch" class="filter-bar search-filter-grid hidden">
+                  <input id="marketAdvancedName" type="search" placeholder="Nome, clube ou nacionalidade" />
+                  <select id="marketSearchPosition">
+                    <option value="all">Todas posicoes</option>
+                  </select>
+                  <input id="marketMaxValue" class="money-input" type="text" placeholder="Valor maximo" />
+                  <input id="marketMinRating" type="number" min="1" max="99" placeholder="Geral minimo" />
+                  <input id="marketMaxRating" type="number" min="1" max="99" placeholder="Geral maximo" />
+                  <select id="marketSearchAge">
+                    <option value="all">Todas idades</option>
+                    <option value="u21">Sub-21</option>
+                    <option value="u24">Sub-24</option>
+                    <option value="prime">24 a 29</option>
+                    <option value="experienced">30+</option>
+                  </select>
+                  <button id="advancedMarketSearchBtn" class="buy-button">Pesquisar</button>
                 </div>
                 <div id="marketList" class="market-list"></div>
               </section>
