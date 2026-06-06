@@ -379,7 +379,7 @@
                   <select id="marketSearchPosition">
                     <option value="all">Todas posicoes</option>
                   </select>
-                  <input id="marketMaxValue" class="money-input" type="text" placeholder="Valor maximo" />
+                  <input id="marketMaxValue" class="money-input" list="moneyOptions" type="text" placeholder="Valor maximo" />
                   <input id="marketMinRating" type="number" min="1" max="99" placeholder="Geral minimo" />
                   <input id="marketMaxRating" type="number" min="1" max="99" placeholder="Geral maximo" />
                   <select id="marketSearchAge">
@@ -512,6 +512,18 @@
         </div>
         <div id="negotiationModal" class="modal-layer hidden"></div>
         <div id="alertModal" class="modal-layer hidden"></div>
+        <datalist id="moneyOptions">
+          <option value="50K"></option>
+          <option value="100K"></option>
+          <option value="200K"></option>
+          <option value="500K"></option>
+          <option value="1M"></option>
+          <option value="2.5M"></option>
+          <option value="5M"></option>
+          <option value="10M"></option>
+          <option value="20M"></option>
+          <option value="40M"></option>
+        </datalist>
       </section>
     </main>
     <div id="loadingOverlay" class="loading-overlay hidden" role="status" aria-live="polite" aria-busy="true" aria-hidden="true">

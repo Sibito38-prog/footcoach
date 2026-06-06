@@ -1043,6 +1043,35 @@ input {
   background: #fffdf8;
 }
 
+.bench-slots {
+  grid-template-columns: 1fr;
+}
+
+.bench-slot {
+  position: relative;
+  display: grid;
+  min-height: 72px;
+  align-items: stretch;
+  padding: 6px;
+  border: 1px dashed rgba(28, 72, 51, 0.34);
+  border-radius: 8px;
+  background: #faf7ee;
+}
+
+.bench-slot.drag-over {
+  outline: 3px solid var(--gold);
+}
+
+.bench-slot-label {
+  position: absolute;
+  top: 5px;
+  right: 7px;
+  z-index: 1;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
 .unrelated-list {
   max-height: 360px;
   background: #f7f3ea;
@@ -1925,6 +1954,14 @@ tr.relegation-zone td:first-child {
     max-height: 340px;
   }
 
+  .bench-slots {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .bench-slot {
+    min-height: 86px;
+  }
+
   .unrelated-list {
     max-height: 300px;
   }
@@ -1999,6 +2036,30 @@ tr.relegation-zone td:first-child {
     width: 100%;
   }
 
+  .player-row-detailed {
+    display: grid;
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .player-side-actions {
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-items: stretch;
+    align-items: stretch;
+  }
+
+  .player-side-actions .rating,
+  .player-side-actions .delta {
+    justify-self: stretch;
+    text-align: center;
+  }
+
+  .player-side-actions .small-action {
+    width: 100%;
+    min-width: 0;
+  }
+
   .save-slot {
     align-items: stretch;
     flex-direction: column;
@@ -2055,5 +2116,9 @@ tr.relegation-zone td:first-child {
 
   .bench-list {
     grid-template-columns: 1fr;
+  }
+
+  .bench-slots {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }

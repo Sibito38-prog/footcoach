@@ -377,6 +377,7 @@ let loadingDepth = 0;
 let deferredInstallPrompt = null;
 let tapMovePlayer = null;
 let tapMoveSlot = -1;
+let tapMoveSource = "";
 let matchSimRunning = false;
 
 const saveSlotKeys = ["footCoachSave1", "footCoachSave2", "footCoachSave3"];
@@ -571,6 +572,7 @@ function resetTransientUiState() {
   draggedSlot = -1;
   tapMovePlayer = null;
   tapMoveSlot = -1;
+  tapMoveSource = "";
   document.body?.classList.remove("dragging-player", "tap-moving-player");
 }
 
@@ -623,29 +625,46 @@ async function promptInstallApp() {
 function clearTapMove(skipRender = false) {
   tapMovePlayer = null;
   tapMoveSlot = -1;
+  tapMoveSource = "";
   document.body?.classList.remove("tap-moving-player");
   if (!skipRender && state) render();
 }
 
-function setTapMove(playerId, slotIndex = -1) {
+function setTapMove(playerId, slotIndex = -1, source = "") {
   tapMovePlayer = playerId;
   tapMoveSlot = Number(slotIndex);
+  tapMoveSource = source;
   document.body?.classList.add("tap-moving-player");
   if (state) render();
+}
+
+function swapBenchSlots(firstIndex, secondIndex) {
+  const context = state.liveMatch ? "match" : "lineup";
+  const benchIds = activeBenchSlotIds(context);
+  const first = benchIds[firstIndex];
+  benchIds[firstIndex] = benchIds[secondIndex];
+  benchIds[secondIndex] = first;
+  setBenchSlotIds(benchIds, context);
+  saveState();
+  render();
 }
 
 function handleTapMove(target) {
   if (!state) return false;
   const token = target.closest("[data-drag-player]");
-  const drop = target.closest("[data-drop-slot], [data-formation-slot], [data-drop-bench], [data-drop-unrelated]");
+  const drop = target.closest("[data-drop-slot], [data-formation-slot], [data-drop-bench], [data-drop-bench-index], [data-drop-unrelated]");
 
   if (tapMovePlayer && token && token.dataset.dragPlayer !== tapMovePlayer) {
     const source = token.dataset.dragSource;
     const slot = Number(token.dataset.dragSlot);
     const playerId = tapMovePlayer;
+    const selectedSlot = tapMoveSlot;
+    const selectedSource = tapMoveSource;
     clearTapMove(true);
     if (source === "starter" && Number.isFinite(slot)) movePlayerToSlot(playerId, slot);
-    else if (source === "bench") movePlayerToBench(playerId);
+    else if (source === "bench" && selectedSource === "starter" && Number.isFinite(selectedSlot)) movePlayerToSlot(token.dataset.dragPlayer, selectedSlot);
+    else if (source === "bench" && selectedSource === "bench" && Number.isFinite(selectedSlot) && Number.isFinite(slot)) swapBenchSlots(selectedSlot, slot);
+    else if (source === "bench") movePlayerToBench(playerId, slot);
     else movePlayerToUnrelated(playerId);
     return true;
   }
@@ -655,6 +674,7 @@ function handleTapMove(target) {
     const sourceSlot = tapMoveSlot;
     clearTapMove(true);
     if (drop.dataset.formationSlot) movePlayerToFormationSlot(playerId, drop.dataset.formationSlot, sourceSlot, drop.dataset.formationCoord);
+    else if (drop.dataset.dropBenchIndex) movePlayerToBench(playerId, Number(drop.dataset.dropBenchIndex));
     else if (drop.dataset.dropBench) movePlayerToBench(playerId);
     else if (drop.dataset.dropUnrelated) movePlayerToUnrelated(playerId);
     else movePlayerToSlot(playerId, Number(drop.dataset.dropSlot));
@@ -663,7 +683,7 @@ function handleTapMove(target) {
 
   if (token) {
     if (tapMovePlayer === token.dataset.dragPlayer) clearTapMove();
-    else setTapMove(token.dataset.dragPlayer, token.dataset.dragSlot);
+    else setTapMove(token.dataset.dragPlayer, token.dataset.dragSlot, token.dataset.dragSource);
     return true;
   }
 
@@ -2661,14 +2681,25 @@ function suggestedBench(club = getUserClub(), lineupIds = state.lineupIds) {
 }
 
 function activeBenchIds(context = state.liveMatch ? "match" : "lineup") {
+  return activeBenchSlotIds(context).filter(Boolean);
+}
+
+function activeBenchSlotIds(context = state.liveMatch ? "match" : "lineup") {
   const club = getUserClub();
   const ids = context === "match" && state.liveMatch ? state.liveMatch.lineupIds : state.lineupIds;
   const target = context === "match" && state.liveMatch ? state.liveMatch : state;
   const starters = new Set(ids);
   const valid = new Set(club.squad.map((player) => player.id));
   if (!Array.isArray(target.benchIds)) target.benchIds = suggestedBench(club, ids).map((player) => player.id);
-  target.benchIds = target.benchIds.filter((id) => valid.has(id) && !starters.has(id)).slice(0, maxBenchPlayers);
-  return target.benchIds;
+  const seen = new Set();
+  const clean = Array.from({ length: maxBenchPlayers }, (_, index) => {
+    const id = target.benchIds[index];
+    if (!id || !valid.has(id) || starters.has(id) || seen.has(id)) return null;
+    seen.add(id);
+    return id;
+  });
+  target.benchIds = clean;
+  return clean;
 }
 
 function setBenchIds(nextIds, context = state.liveMatch ? "match" : "lineup") {
@@ -2677,6 +2708,24 @@ function setBenchIds(nextIds, context = state.liveMatch ? "match" : "lineup") {
   const starters = new Set(ids);
   const valid = new Set(club.squad.map((player) => player.id));
   const clean = [...new Set(nextIds)].filter((id) => valid.has(id) && !starters.has(id)).slice(0, maxBenchPlayers);
+  if (context === "match" && state.liveMatch) state.liveMatch.benchIds = clean;
+  else state.benchIds = clean;
+  return clean;
+}
+
+function setBenchSlotIds(nextIds, context = state.liveMatch ? "match" : "lineup") {
+  const club = getUserClub();
+  const ids = context === "match" && state.liveMatch ? state.liveMatch.lineupIds : state.lineupIds;
+  const target = context === "match" && state.liveMatch ? state.liveMatch : state;
+  const starters = new Set(ids);
+  const valid = new Set(club.squad.map((player) => player.id));
+  const seen = new Set();
+  const clean = Array.from({ length: maxBenchPlayers }, (_, index) => {
+    const id = nextIds[index];
+    if (!id || !valid.has(id) || starters.has(id) || seen.has(id)) return null;
+    seen.add(id);
+    return id;
+  });
   if (context === "match" && state.liveMatch) state.liveMatch.benchIds = clean;
   else state.benchIds = clean;
   return clean;
@@ -4610,7 +4659,7 @@ function movePlayerToSlot(playerId, slotIndex) {
   const roles = state.liveMatch ? state.liveMatch.lineupRoles : state.lineupRoles;
   const tactics = state.liveMatch?.tactics || state.tactics;
   const context = state.liveMatch ? "match" : "lineup";
-  const benchIds = activeBenchIds(context);
+  const benchIds = activeBenchSlotIds(context);
   const currentIndex = ids.indexOf(playerId);
   const benchIndex = benchIds.indexOf(playerId);
   const targetId = ids[slotIndex];
@@ -4625,34 +4674,58 @@ function movePlayerToSlot(playerId, slotIndex) {
     ids[currentIndex] = targetId;
     roles[currentIndex] = targetRole || defaultRoleForSlot(activeSlots(tactics)[currentIndex]);
   } else if (benchIndex >= 0) {
-    benchIds.splice(benchIndex, 1);
-    if (targetId) benchIds.splice(benchIndex, 0, targetId);
-  } else if (targetId && !benchIds.includes(targetId) && benchIds.length < maxBenchPlayers) {
-    benchIds.push(targetId);
+    benchIds[benchIndex] = targetId || null;
+  } else if (targetId && !benchIds.includes(targetId)) {
+    const emptyIndex = benchIds.findIndex((id) => !id);
+    if (emptyIndex >= 0) benchIds[emptyIndex] = targetId;
   }
   ids[slotIndex] = playerId;
   roles[slotIndex] = roles[slotIndex] || defaultRoleForSlot(activeSlots(tactics)[slotIndex]);
-  setBenchIds(benchIds, context);
+  setBenchSlotIds(benchIds, context);
   currentLineup();
   saveState();
   render();
 }
 
-function movePlayerToBench(playerId) {
+function movePlayerToBench(playerId, benchIndex = null) {
   const context = state.liveMatch ? "match" : "lineup";
   const ids = state.liveMatch ? state.liveMatch.lineupIds : state.lineupIds;
+  const targetIndex = Number.isFinite(Number(benchIndex)) ? Number(benchIndex) : null;
+  const currentStarterIndex = ids.indexOf(playerId);
+  const benchIds = activeBenchSlotIds(context);
+  if (currentStarterIndex >= 0 && targetIndex !== null) {
+    const replacementId = benchIds[targetIndex];
+    if (replacementId) {
+      movePlayerToSlot(replacementId, currentStarterIndex);
+      return;
+    }
+  }
   if (ids.includes(playerId)) {
     showAlertModal("Titular em campo", "Para tirar um titular, arraste outro jogador para a posicao dele no mini campo.");
     return;
   }
-  const benchIds = activeBenchIds(context);
-  if (benchIds.includes(playerId)) return;
-  if (benchIds.length >= maxBenchPlayers) {
+  const currentBenchIndex = benchIds.indexOf(playerId);
+  if (currentBenchIndex >= 0) {
+    if (targetIndex === null || currentBenchIndex === targetIndex) return;
+    const targetPlayer = benchIds[targetIndex];
+    benchIds[targetIndex] = playerId;
+    benchIds[currentBenchIndex] = targetPlayer || null;
+    setBenchSlotIds(benchIds, context);
+    saveState();
+    render();
+    return;
+  }
+  const destinationIndex = targetIndex === null ? benchIds.findIndex((id) => !id) : targetIndex;
+  if (destinationIndex < 0) {
     showAlertModal("Banco completo", `O banco tem limite de ${maxBenchPlayers} jogadores. Mova alguem para nao relacionados antes de adicionar outro reserva.`);
     return;
   }
-  benchIds.push(playerId);
-  setBenchIds(benchIds, context);
+  if (benchIds[destinationIndex]) {
+    showAlertModal("Vaga ocupada", "Toque no jogador dessa vaga para fazer uma troca direta, ou escolha uma vaga livre.");
+    return;
+  }
+  benchIds[destinationIndex] = playerId;
+  setBenchSlotIds(benchIds, context);
   saveState();
   render();
 }
@@ -4664,8 +4737,8 @@ function movePlayerToUnrelated(playerId) {
     showAlertModal("Titular em campo", "Um titular precisa ser substituido por outro jogador no mini campo antes de ficar fora dos relacionados.");
     return;
   }
-  const benchIds = activeBenchIds(context).filter((id) => id !== playerId);
-  setBenchIds(benchIds, context);
+  const benchIds = activeBenchSlotIds(context).map((id) => id === playerId ? null : id);
+  setBenchSlotIds(benchIds, context);
   saveState();
   render();
 }
@@ -6591,9 +6664,18 @@ function renderLineupBoard(context) {
   const roles = context === "match" && state.liveMatch ? state.liveMatch.lineupRoles : state.lineupRoles;
   const lineup = currentLineup(club, tactics, ids, roles);
   const starters = new Set(ids);
-  const benchIds = activeBenchIds(context);
+  const benchIds = activeBenchSlotIds(context);
   const benchSet = new Set(benchIds);
   const bench = benchIds.map((id) => playerById(club, id)).filter(Boolean);
+  const benchSlots = Array.from({ length: maxBenchPlayers }, (_, index) => {
+    const player = playerById(club, benchIds[index]);
+    return `
+      <div class="bench-slot" data-drop-bench="true" data-drop-bench-index="${index}">
+        <span class="bench-slot-label">R${index + 1}</span>
+        ${player ? playerToken(player, "bench", index) : `<div class="empty-drop">Vaga livre</div>`}
+      </div>
+    `;
+  }).join("");
   const unrelated = club.squad
     .filter((player) => !starters.has(player.id) && !benchSet.has(player.id))
     .sort((a, b) => Number(isInjured(b) || isSuspended(b)) - Number(isInjured(a) || isSuspended(a)) || b.rating - a.rating);
@@ -6619,8 +6701,8 @@ function renderLineupBoard(context) {
         <h2>Banco</h2>
         <span>${bench.length}/${maxBenchPlayers}</span>
       </div>
-      <div class="bench-list" data-drop-bench="true">
-        ${bench.length ? bench.map((player) => playerToken(player, "bench", -1)).join("") : `<div class="empty-drop">Arraste jogadores para o banco.</div>`}
+      <div class="bench-list bench-slots">
+        ${benchSlots}
       </div>
       <div class="section-heading">
         <h2>Nao relacionados</h2>
@@ -7762,24 +7844,25 @@ function wireEvents() {
   });
 
   document.addEventListener("dragover", (event) => {
-    const drop = event.target.closest("[data-drop-slot], [data-formation-slot], [data-drop-bench], [data-drop-unrelated]");
+    const drop = event.target.closest("[data-drop-slot], [data-formation-slot], [data-drop-bench], [data-drop-bench-index], [data-drop-unrelated]");
     if (!drop) return;
     event.preventDefault();
     drop.classList.add("drag-over");
   });
 
   document.addEventListener("dragleave", (event) => {
-    const drop = event.target.closest("[data-drop-slot], [data-formation-slot], [data-drop-bench], [data-drop-unrelated]");
+    const drop = event.target.closest("[data-drop-slot], [data-formation-slot], [data-drop-bench], [data-drop-bench-index], [data-drop-unrelated]");
     if (drop) drop.classList.remove("drag-over");
   });
 
   document.addEventListener("drop", (event) => {
-    const drop = event.target.closest("[data-drop-slot], [data-formation-slot], [data-drop-bench], [data-drop-unrelated]");
+    const drop = event.target.closest("[data-drop-slot], [data-formation-slot], [data-drop-bench], [data-drop-bench-index], [data-drop-unrelated]");
     if (!drop) return;
     event.preventDefault();
     drop.classList.remove("drag-over");
     const playerId = draggedPlayer || event.dataTransfer.getData("text/plain");
     if (playerId && drop.dataset.formationSlot) movePlayerToFormationSlot(playerId, drop.dataset.formationSlot, draggedSlot, drop.dataset.formationCoord);
+    else if (playerId && drop.dataset.dropBenchIndex) movePlayerToBench(playerId, Number(drop.dataset.dropBenchIndex));
     else if (playerId && drop.dataset.dropBench) movePlayerToBench(playerId);
     else if (playerId && drop.dataset.dropUnrelated) movePlayerToUnrelated(playerId);
     else if (playerId) movePlayerToSlot(playerId, Number(drop.dataset.dropSlot));
@@ -7899,6 +7982,10 @@ function wireEvents() {
   document.addEventListener("blur", (event) => {
     if (!event.target.matches(".money-input")) return;
     formatMoneyField(event.target);
+    if (event.target.matches("#marketMaxValue")) {
+      state.marketSearchPerformed = false;
+      updateMarketContent("Atualizando criterios de pesquisa...");
+    }
     if (state?.negotiation) state.negotiation = { ...state.negotiation, ...readNegotiationForm() };
     if (state?.offerModal) state.offerModal = { ...state.offerModal, ...readIncomingCounterForm() };
     saveState();
